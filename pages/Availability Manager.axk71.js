@@ -2,6 +2,30 @@
 import wixData from 'wix-data';
 import wixWindow from 'wix-window';
 import wixLocation from 'wix-location-frontend';
+import { generateAvailabilityForTour } from 'backend/availability/availabilityCore.web.js';
+
+// Color variables centralized for easy management and consistency
+const COLORS = {
+    // Text colors for days of week
+    TEXT_NORMAL: '#262E39',        // Normal weekdays text color
+    TEXT_SUNDAY: '#C13939',        // Sunday text color (red)
+    TEXT_SATURDAY: '#405FB0',      // Saturday text color (blue)
+    
+    // Background colors for calendar days
+    BG_CURRENT_MONTH: '#FFFFFF',   // Current month days background
+    BG_OTHER_MONTH: '#EEECEC',     // Non-current month days background
+    
+    // Border colors (4px borders, coordinated with backgrounds)
+    BORDER_CURRENT_MONTH: '#FFFFFF',  // Normal days border (matches background)
+    BORDER_OTHER_MONTH: '#EEECEC',    // Non-current month days border (matches background)
+    BORDER_TODAY: '#567FCB',           // Current day border highlight (blue)
+    
+    // Status colors for availability states
+    STATUS_AVAILABLE: '#6F8D53',      // Available status color (green)
+    STATUS_SOLDOUT: '#C13939',        // Sold out status color (red)
+    STATUS_NOT_OPERATING: '#4C4C4C',  // Not operating status color (gray)
+    STATUS_PARTIAL: '#FF9300'         // Partial availability color (orange)
+};
 
 // Global variables for state management
 let currentDate = new Date();
@@ -16,7 +40,7 @@ let currentDayData = null;
 let availableDateRange = { min: null, max: null };
 let lastSelectedTourId = null;
 
-// Robust dropdown state management - IMPROVED PATTERN
+// Robust dropdown state management - improved pattern to prevent flash effects
 let globalClickListener = null;
 let currentOpenDayItemId = null;
 let currentOpenDayElement = null;
@@ -24,7 +48,7 @@ let menuButtonClicked = false;
 let clickHandlerSetupComplete = false;
 let operationCounter = 0; // Track operations to prevent accumulation
 
-// JST timezone configuration
+// JST timezone configuration (Japan Standard Time - 9 hours ahead of UTC)
 const JST_OFFSET = 9 * 60 * 60 * 1000;
 
 // English month names for calendar display
@@ -33,24 +57,20 @@ const MONTH_NAMES = [
     'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-// Status configuration with colors and texts for availability states
+// Status configuration with centralized colors and texts for availability states
 const STATUS_CONFIG = {
-    available: { text: 'Available', color: '#6F8D53' },
-    soldout: { text: 'Sold out', color: '#C13939' },
-    notoperating: { text: 'Not operating', color: '#4C4C4C' },
-    partiallysoldout: { text: 'Slots', color: '#FF9300' }
+    available: { text: 'Available', color: COLORS.STATUS_AVAILABLE },
+    soldout: { text: 'Sold out', color: COLORS.STATUS_SOLDOUT },
+    notoperating: { text: 'Not operating', color: COLORS.STATUS_NOT_OPERATING },
+    partiallysoldout: { text: 'Slots', color: COLORS.STATUS_PARTIAL }
 };
-
-// Color constants for calendar styling
-const TODAY_BG_COLOR = '#CFDFF5';
-const NON_CURRENT_MONTH_BG = '#CBCACA';
 
 // Initialize page when ready - sets up all components and handlers
 $w.onReady(async function () {
     console.log('Availability Manager initializing...');
     appendLog('Availability Manager initializing...');
     
-    // Complete system reset on page ready
+    // Complete system reset on page ready to prevent state issues
     performCompleteSystemReset();
     
     // Set initial loading state
@@ -60,20 +80,20 @@ $w.onReady(async function () {
     // Initialize calendar display with current date
     updateCalendarDisplay();
     
-    // Setup repeater handlers before any data operations
+    // Setup repeater handlers before any data operations - critical for proper initialization
     setupRepeaterHandlers();
     
-    // Setup tour selector dropdown
+    // Setup tour selector dropdown with database integration
     await setupTourSelector();
     
-    // Setup navigation buttons with range checking
+    // Setup navigation buttons with range checking for tour-based navigation
     setupNavigationButtons();
     
-    // Setup menu buttons and dropdown functionality
+    // Setup menu buttons and dropdown functionality with robust state management
     setupMenuButtons();
     setupDropdownElements();
     
-    // Initially hide navigation buttons since no tour is selected
+    // Initially hide navigation buttons since no tour is selected (prevents navigation bugs)
     hideNavigationButtons();
     
     appendLog('Availability Manager initialized successfully');
@@ -82,12 +102,13 @@ $w.onReady(async function () {
 });
 
 /**
- * Perform complete system reset to prevent state accumulation - ROBUST PATTERN
+ * Perform complete system reset to prevent state accumulation - robust pattern
+ * Resets all global variables and UI states to clean initial state
  */
 function performCompleteSystemReset() {
     console.log('Performing complete system reset...');
     
-    // Reset all dropdown states
+    // Reset all dropdown states to prevent conflicts
     isCalendarMenuOpen = false;
     isDayMenuOpen = false;
     currentDayData = null;
@@ -97,7 +118,7 @@ function performCompleteSystemReset() {
     clickHandlerSetupComplete = false;
     operationCounter = 0;
     
-    // Force hide all dropdowns
+    // Force hide all dropdowns to ensure clean UI state
     if ($w('#calendarDropdown')) {
         $w('#calendarDropdown').hide();
     }
@@ -105,18 +126,19 @@ function performCompleteSystemReset() {
         $w('#dayDropdown').hide();
     }
     
-    // Complete handler cleanup
+    // Complete handler cleanup to prevent event accumulation
     forceRemoveAllHandlers();
     
     console.log('System reset completed');
 }
 
 /**
- * Force remove all click handlers to prevent accumulation - ROBUST PATTERN
+ * Force remove all click handlers to prevent accumulation - robust pattern
+ * Cleans up all global event handlers to prevent memory leaks and conflicts
  */
 function forceRemoveAllHandlers() {
     try {
-        // Remove global click handler completely
+        // Remove global click handler completely to prevent accumulation
         if (globalClickListener || clickHandlerSetupComplete) {
             $w('#availabilityManager').onClick(() => {});
             globalClickListener = null;
@@ -129,30 +151,31 @@ function forceRemoveAllHandlers() {
 }
 
 /**
- * Setup global click listener with robust state management - IMPROVED PATTERN
+ * Setup global click listener with robust state management - improved pattern
+ * Handles outside clicks for dropdown closure without conflicts
  */
 function setupRobustGlobalClickListener() {
-    // Prevent multiple setups
+    // Prevent multiple setups to avoid handler accumulation
     if (clickHandlerSetupComplete) {
         console.log('Click handler already setup, skipping');
         return;
     }
     
-    // Force cleanup before new setup
+    // Force cleanup before new setup to ensure clean state
     forceRemoveAllHandlers();
     
     globalClickListener = function(event) {
         const clickedElementId = event.target.id;
         console.log('Global click detected:', clickedElementId, 'Operation:', operationCounter);
         
-        // Skip processing if this click was on a menu button
+        // Skip processing if this click was on a menu button to prevent conflicts
         if (menuButtonClicked) {
             menuButtonClicked = false;
             console.log('Skipping global click - menu button was clicked');
             return;
         }
         
-        // Handle calendar dropdown closure
+        // Handle calendar dropdown closure on outside clicks
         if (isCalendarMenuOpen) {
             const calendarElements = [
                 'calendarMenu', 'calendarDropdown', 
@@ -165,7 +188,7 @@ function setupRobustGlobalClickListener() {
             }
         }
         
-        // Handle day dropdown closure
+        // Handle day dropdown closure on outside clicks
         if (isDayMenuOpen && currentOpenDayElement) {
             const dayElements = [
                 'dayMenuButton', 'dayDropdown', 
@@ -185,7 +208,8 @@ function setupRobustGlobalClickListener() {
 }
 
 /**
- * Robust day dropdown toggle with complete state management - IMPROVED PATTERN
+ * Robust day dropdown toggle with complete state management - improved pattern
+ * Manages day-specific dropdown menus with proper state tracking
  */
 function toggleDayDropdownRobust(event, dayData) {
     operationCounter++;
@@ -196,7 +220,7 @@ function toggleDayDropdownRobust(event, dayData) {
     
     const itemId = event.context.itemId;
     
-    // If same item is clicked and dropdown is open, close it
+    // If same item is clicked and dropdown is open, close it (toggle behavior)
     if (currentOpenDayItemId === itemId && isDayMenuOpen) {
         console.log('Closing dropdown for same item:', itemId);
         closeDayDropdownRobust();
@@ -206,7 +230,7 @@ function toggleDayDropdownRobust(event, dayData) {
         if (isDayMenuOpen) {
             closeDayDropdownRobust();
         }
-        // Small delay to ensure clean state
+        // Small delay to ensure clean state transition
         setTimeout(() => {
             openDayDropdownRobust(event, dayData);
         }, 50);
@@ -214,7 +238,8 @@ function toggleDayDropdownRobust(event, dayData) {
 }
 
 /**
- * Open day dropdown with robust state tracking - IMPROVED PATTERN
+ * Open day dropdown with robust state tracking - improved pattern
+ * Opens day-specific dropdown menu with proper element targeting
  */
 function openDayDropdownRobust(event, dayData) {
     console.log('Opening day dropdown robustly for:', event.context.itemId);
@@ -224,12 +249,12 @@ function openDayDropdownRobust(event, dayData) {
         const $item = $w.at(event.context);
         const itemId = event.context.itemId;
         
-        // Force close calendar dropdown if open
+        // Force close calendar dropdown if open to prevent conflicts
         if (isCalendarMenuOpen) {
             closeCalendarDropdownRobust();
         }
         
-        // Store references for tracking
+        // Store references for tracking and later cleanup
         currentOpenDayItemId = itemId;
         currentOpenDayElement = $item;
         currentDayData = dayData;
@@ -241,7 +266,7 @@ function openDayDropdownRobust(event, dayData) {
             
             console.log('Day dropdown opened robustly for item:', itemId);
             
-            // Setup global click listener with delay
+            // Setup global click listener with delay to handle outside clicks
             setTimeout(() => {
                 if (isDayMenuOpen) {
                     setupRobustGlobalClickListener();
@@ -254,37 +279,39 @@ function openDayDropdownRobust(event, dayData) {
     } catch (error) {
         console.error('Error opening day dropdown robustly:', error);
         appendLog(`Error opening day dropdown: ${error.message}`);
-        // Reset state on error
+        // Reset state on error to prevent inconsistent state
         performDayDropdownStateReset();
     }
 }
 
 /**
- * Close day dropdown with complete state cleanup - IMPROVED PATTERN
+ * Close day dropdown with complete state cleanup - improved pattern
+ * Properly closes dropdown and resets all associated state variables
  */
 function closeDayDropdownRobust() {
     console.log('Closing day dropdown robustly for item:', currentOpenDayItemId);
     
     try {
-        // Hide dropdown in specific element
+        // Hide dropdown in specific element to prevent flash effects
         if (currentOpenDayElement && currentOpenDayElement('#dayDropdown')) {
             currentOpenDayElement('#dayDropdown').hide();
         }
         
-        // Perform complete state reset
+        // Perform complete state reset to ensure clean state
         performDayDropdownStateReset();
         
         console.log('Day dropdown closed robustly');
         
     } catch (error) {
         console.error('Error closing day dropdown robustly:', error);
-        // Force state reset on error
+        // Force state reset on error to prevent stuck states
         performDayDropdownStateReset();
     }
 }
 
 /**
- * Perform complete day dropdown state reset - ROBUST PATTERN
+ * Perform complete day dropdown state reset - robust pattern
+ * Resets all day dropdown related state variables
  */
 function performDayDropdownStateReset() {
     isDayMenuOpen = false;
@@ -301,32 +328,37 @@ function performDayDropdownStateReset() {
 }
 
 /**
- * Setup repeater item handlers with robust event management - IMPROVED PATTERN
+ * Setup repeater item handlers with robust event management - improved pattern
+ * Configures the 42-element calendar repeater with proper event handling
  */
 function setupRepeaterHandlers() {
     console.log('Setting up repeater handlers...');
     
-    // Clear repeater to avoid stale state
+    // Clear repeater to avoid stale state and prevent conflicts
     $w('#calendarRepeater').data = [];
     
-    // Setup onItemReady callback before setting data
+    // Setup onItemReady callback before setting data - critical for proper initialization
     $w('#calendarRepeater').onItemReady(($item, itemData, index) => {
         console.log(`Setting up calendar day ${index}: ${itemData.dateKey}`, itemData);
         
         try {
-            // Set day number and text color
+            // Set day number and apply centralized text color based on day of week
             $item('#dayText').text = itemData.dayNumber.toString();
             $item('#dayText').style.color = itemData.textColor;
             
-            // Set background color including today highlighting
+            // Set background color with centralized color management
             $item('#dayBox').style.backgroundColor = itemData.backgroundColor;
             
-            // Setup interactive elements based on availability
+            // Apply 4px border with coordinated colors using separate properties (Wix Style API compatible)
+            $item('#dayBox').style.borderColor = itemData.borderColor;
+            $item('#dayBox').style.borderWidth = "4px";
+            
+            // Setup interactive elements based on availability data
             setupStatusButton($item, itemData, index);
             setupBookingCounter($item, itemData);
             setupSeasonTags($item, itemData);
             
-            // IMPORTANT: Hide the dayDropdown initially in each item
+            // IMPORTANT: Hide the dayDropdown initially in each item to prevent visual glitches
             if ($item('#dayDropdown')) {
                 $item('#dayDropdown').hide();
             }
@@ -339,7 +371,7 @@ function setupRepeaterHandlers() {
         }
     });
     
-    // Setup day menu button click handler with robust pattern
+    // Setup day menu button click handler with robust pattern to prevent accumulation
     $w('#dayMenuButton').onClick((event) => {
         console.log('Day menu button clicked with context:', event.context);
         
@@ -356,6 +388,7 @@ function setupRepeaterHandlers() {
 
 /**
  * Setup tour selector dropdown using urlName for display
+ * Loads tours from database and populates dropdown options
  */
 async function setupTourSelector() {
     try {
@@ -363,7 +396,7 @@ async function setupTourSelector() {
         appendLog('Loading tours from database...');
         updateSystemStatus('Loading tours...');
         
-        // Get all tours from database
+        // Get all tours from database ordered by urlName for consistent display
         const toursQuery = await wixData.query('Tours')
             .ascending('urlName')
             .find();
@@ -378,7 +411,7 @@ async function setupTourSelector() {
             return;
         }
         
-        // Create dropdown options using urlName for display
+        // Create dropdown options using urlName for display (user-friendly naming)
         const options = [{ label: '-- Select a tour --', value: '' }];
         
         toursQuery.items.forEach(tour => {
@@ -388,7 +421,7 @@ async function setupTourSelector() {
             });
         });
         
-        // Set dropdown options and store tour data
+        // Set dropdown options and store tour data for later reference
         $w('#tourSelector').options = options;
         toursData = toursQuery.items;
         $w('#tourSelector').onChange(onTourSelected);
@@ -407,11 +440,13 @@ async function setupTourSelector() {
 
 /**
  * Handle tour selection with automatic current month reset and navigation button management
+ * Processes tour selection and loads corresponding availability data
  */
 async function onTourSelected(event) {
     const selectedValue = event.target.value;
     
     if (!selectedValue) {
+        // Reset to initial state when no tour selected
         showLoadingState();
         currentTourId = null;
         currentTourLabel = '';
@@ -419,14 +454,14 @@ async function onTourSelected(event) {
         availabilityData = {};
         availabilityRecord = null;
         
-        // Hide navigation buttons when no tour is selected
+        // Hide navigation buttons when no tour is selected (prevents navigation bugs)
         hideNavigationButtons();
         
         updateSystemStatus('Select a tour to begin');
         return;
     }
     
-    // Always force refresh by clearing previous data
+    // Always force refresh by clearing previous data to ensure clean state
     availabilityData = {};
     availabilityRecord = null;
     
@@ -434,7 +469,7 @@ async function onTourSelected(event) {
     currentDate = new Date();
     updateCalendarDisplay();
     
-    // Set tour ID and find label using urlName
+    // Set tour ID and find label using urlName for user-friendly display
     currentTourId = selectedValue;
     lastSelectedTourId = selectedValue;
     const selectedTour = toursData.find(tour => tour._id === selectedValue);
@@ -446,7 +481,7 @@ async function onTourSelected(event) {
     try {
         appendLog(`Loading availability for: ${currentTourLabel}`);
         
-        // Always fetch fresh data from database
+        // Always fetch fresh data from database to ensure accuracy
         const availabilityQuery = await wixData.query('Availability')
             .eq('tourName', currentTourId)
             .find();
@@ -456,14 +491,28 @@ async function onTourSelected(event) {
             showLoadingState();
             updateSystemStatus('No availability data found');
             
-            await wixWindow.openLightbox('messageLightbox', {
-                message: 'No availabilities found for the selected tour. Run the "Availability Generation" function from the calendar menu.'
-            });
+            // Show error lightbox for missing availability using improved error handling
+            showAvailabilityErrorLightbox();
             return;
         }
         
-        // Store availability record and load fresh data
-        availabilityRecord = availabilityQuery.items[0];
+        // Check if availability record has proper data structure
+        const availabilityRecordItem = availabilityQuery.items[0];
+        if (!availabilityRecordItem.availabilityData || 
+            !Array.isArray(availabilityRecordItem.availabilityData) || 
+            availabilityRecordItem.availabilityData.length === 0) {
+            
+            appendLog('Availability record exists but contains no date data');
+            showLoadingState();
+            updateSystemStatus('Corrupted availability data found');
+            
+            // Show error lightbox for corrupted availability
+            showAvailabilityErrorLightbox();
+            return;
+        }
+        
+        // Store availability record and load fresh data - CORRECTED: direct assignment
+        availabilityRecord = availabilityRecordItem;
         updateSystemStatus('Processing calendar data...');
         
         await loadAvailabilityData();
@@ -484,7 +533,30 @@ async function onTourSelected(event) {
 }
 
 /**
+ * Show error lightbox when availability is missing or corrupted
+ * Displays appropriate error message and offers regeneration option
+ */
+function showAvailabilityErrorLightbox() {
+    const errorMessage = "C'è un errore nelle disponibilità del tour, non sono state rilevate date nel database. Si prega di ricreare il database con la funzione 'Generate Availabilities' nel Calendar menu.";
+    
+    // Show lightbox with error message and generation option
+    wixWindow.openLightbox("availabilityErrorLightbox", {
+        errorMessage: errorMessage,
+        tourId: currentTourId,
+        action: "regenerate"
+    }).then((result) => {
+        if (result && result.action === "regenerated") {
+            // Reload data after regeneration
+            onTourSelected({ target: { value: currentTourId } });
+        }
+    }).catch((error) => {
+        console.error("Error in availability error lightbox:", error);
+    });
+}
+
+/**
  * Load availability data from database array field with improved date handling
+ * Processes availability data from database and creates lookup object
  */
 async function loadAvailabilityData() {
     if (!currentTourId || !availabilityRecord) return;
@@ -496,7 +568,7 @@ async function loadAvailabilityData() {
         // Process availabilityData array from database record
         if (availabilityRecord.availabilityData && Array.isArray(availabilityRecord.availabilityData)) {
             availabilityRecord.availabilityData.forEach(item => {
-                // Use simple date format without JST conversion for key matching
+                // Use simple date format without JST conversion for key matching consistency
                 const itemDate = new Date(item.date);
                 const dateKey = formatDateKeySimple(itemDate);
                 availabilityData[dateKey] = item;
@@ -517,6 +589,7 @@ async function loadAvailabilityData() {
 
 /**
  * Calculate the range of available dates for navigation control
+ * Determines min and max months that have availability data
  */
 function calculateAvailableDateRange() {
     const dates = Object.keys(availabilityData).map(key => new Date(key));
@@ -536,7 +609,8 @@ function calculateAvailableDateRange() {
 }
 
 /**
- * Generate calendar data with improved month detection
+ * Generate calendar data for 42-day calendar grid (6 weeks x 7 days)
+ * Creates data for calendar visualization with proper month detection
  */
 function generateCalendarData() {
     const viewYear = currentDate.getFullYear();
@@ -544,7 +618,7 @@ function generateCalendarData() {
     
     console.log(`Generating calendar for ${MONTH_NAMES[viewMonth]} ${viewYear}`);
     
-    // Calculate calendar boundaries
+    // Calculate calendar boundaries for 42-day grid
     const firstDayOfMonth = new Date(viewYear, viewMonth, 1);
     const firstDayOfWeek = firstDayOfMonth.getDay();
     const lastDayOfMonth = new Date(viewYear, viewMonth + 1, 0);
@@ -553,7 +627,7 @@ function generateCalendarData() {
     
     const calendarData = [];
     
-    // Fill previous month days
+    // Fill previous month days to complete first week
     for (let i = firstDayOfWeek - 1; i >= 0; i--) {
         const dayNumber = prevMonthLastDay - i;
         const date = new Date(viewYear, viewMonth - 1, dayNumber);
@@ -566,7 +640,7 @@ function generateCalendarData() {
         calendarData.push(createDayData(date, day, viewYear, viewMonth));
     }
     
-    // Fill next month days to reach 42 days
+    // Fill next month days to reach 42 days total (6 weeks)
     const remainingDays = 42 - calendarData.length;
     for (let day = 1; day <= remainingDays; day++) {
         const date = new Date(viewYear, viewMonth + 1, day);
@@ -578,47 +652,50 @@ function generateCalendarData() {
 }
 
 /**
- * Create day data object with improved date handling and debugging
+ * Create day data object with centralized color management and proper styling
+ * Applies all color rules including weekday colors, borders, and backgrounds
  */
 function createDayData(date, dayNumber, viewYear, viewMonth) {
     const dayOfWeek = date.getDay();
     const dateKey = formatDateKeySimple(date);
     const availability = availabilityData[dateKey] || null;
     
-    // Improved month detection
+    // Improved month detection for accurate current month highlighting
     const isCurrentMonth = date.getMonth() === viewMonth && date.getFullYear() === viewYear;
     
-    // Determine text color based on day of week
-    let textColor = '#262E39';
-    if (dayOfWeek === 0) {
-        textColor = '#FF0000'; // Sunday - red
-    } else if (dayOfWeek === 6) {
-        textColor = '#0056B3'; // Saturday - blue
+    // Determine text color based on day of week using centralized colors
+    let textColor = COLORS.TEXT_NORMAL; // Default weekdays
+    if (dayOfWeek === 0) { // Sunday
+        textColor = COLORS.TEXT_SUNDAY;
+    } else if (dayOfWeek === 6) { // Saturday
+        textColor = COLORS.TEXT_SATURDAY;
     }
     
-    // Calculate background color with proper today detection and month logic
-    let backgroundColor = 'transparent';
+    // Calculate background and border colors with proper today detection
+    let backgroundColor, borderColor;
     const today = new Date();
     const isToday = date.getDate() === today.getDate() && 
                    date.getMonth() === today.getMonth() && 
                    date.getFullYear() === today.getFullYear();
     
-    if (isToday && isCurrentMonth) {
-        backgroundColor = TODAY_BG_COLOR;
-    } else if (!isCurrentMonth) {
-        backgroundColor = NON_CURRENT_MONTH_BG;
+    if (isCurrentMonth) {
+        backgroundColor = COLORS.BG_CURRENT_MONTH;
+        borderColor = isToday ? COLORS.BORDER_TODAY : COLORS.BORDER_CURRENT_MONTH;
+    } else {
+        backgroundColor = COLORS.BG_OTHER_MONTH;
+        borderColor = COLORS.BORDER_OTHER_MONTH;
     }
     
-    // Get availability information
+    // Get availability information with defaults
     const seasonInfo = availability ? availability.season : 'normal';
     const status = availability ? availability.status : 'available';
     const bookedParticipants = availability ? (availability.bookedParticipants || 0) : 0;
     const hasData = availability !== null;
     
-    // Create valid ID for Wix repeater
+    // Create valid ID for Wix repeater (required for proper element targeting)
     const validId = `d-${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
     
-    // Debug logging for problematic dates
+    // Debug logging for problematic dates (month boundaries)
     if (dayNumber === 1) {
         console.log(`Day 1 debug: date=${date.toISOString()}, viewMonth=${viewMonth}, isCurrentMonth=${isCurrentMonth}, dateKey=${dateKey}, hasData=${hasData}`);
     }
@@ -631,6 +708,7 @@ function createDayData(date, dayNumber, viewYear, viewMonth) {
         isCurrentMonth: isCurrentMonth,
         textColor: textColor,
         backgroundColor: backgroundColor,
+        borderColor: borderColor,
         status: status,
         bookedParticipants: bookedParticipants,
         season: seasonInfo,
@@ -641,6 +719,7 @@ function createDayData(date, dayNumber, viewYear, viewMonth) {
 
 /**
  * Populate calendar repeater with generated data
+ * Sets calendar data without causing flash effects during updates
  */
 async function populateCalendar() {
     try {
@@ -650,13 +729,13 @@ async function populateCalendar() {
         const calendarData = generateCalendarData();
         console.log('Setting repeater data with', calendarData.length, 'items');
         
-        // Clear existing data first
+        // Clear existing data first to ensure clean state
         $w('#calendarRepeater').data = [];
         
-        // Wait a moment for clearing to complete
+        // Wait a moment for clearing to complete (prevents flash effects)
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        // Set new data
+        // Set new data - repeater handlers will automatically process each item
         $w('#calendarRepeater').data = calendarData;
         
         console.log('Calendar populated with', calendarData.length, 'days');
@@ -670,7 +749,8 @@ async function populateCalendar() {
 }
 
 /**
- * Setup status button with improved visibility control and debugging
+ * Setup status button with improved visibility control and centralized colors
+ * Configures button appearance and click handler for status management
  */
 function setupStatusButton($item, itemData, index) {
     console.log(`Setting up status button for day ${itemData.dayNumber}: hasData=${itemData.hasAvailabilityData}, isCurrentMonth=${itemData.isCurrentMonth}`);
@@ -687,19 +767,89 @@ function setupStatusButton($item, itemData, index) {
     
     const statusConfig = STATUS_CONFIG[itemData.status] || STATUS_CONFIG.available;
     
-    // Apply status styling
+    // Apply status styling with centralized colors
     $item('#statusButton').label = statusConfig.text;
     $item('#statusButton').style.backgroundColor = statusConfig.color;
     $item('#statusButton').style.color = '#FFFFFF';
     
-    // Setup click handler for status toggle
+    // Setup click handler for status toggle (prevents flash during updates)
     $item('#statusButton').onClick(async () => {
-        await toggleDayStatus(itemData);
+        await toggleDayStatusWithoutFlash(itemData, $item);
     });
 }
 
 /**
+ * Toggle day status with enhanced update mechanism to prevent flash
+ * Updates only the specific changed element without reloading entire calendar
+ */
+async function toggleDayStatusWithoutFlash(dayData, $item) {
+    let newStatus;
+    
+    // Determine new status based on current status (cycling behavior)
+    switch (dayData.status) {
+        case 'available':
+            newStatus = 'soldout';
+            break;
+        case 'soldout':
+            newStatus = 'available';
+            break;
+        case 'notoperating':
+            newStatus = 'available';
+            break;
+        case 'partiallysoldout':
+            newStatus = 'soldout';
+            break;
+        default:
+            newStatus = 'available';
+    }
+    
+    try {
+        updateSystemStatus('Updating status...');
+        appendLog(`Updating ${dayData.dateKey}: ${dayData.status} → ${newStatus}`);
+        
+        // Update status in database
+        await updateAvailabilityStatus(dayData.dateKey, newStatus);
+        
+        // Update local data without reloading entire calendar (prevents flash)
+        if (availabilityData[dayData.dateKey]) {
+            availabilityData[dayData.dateKey].status = newStatus;
+        }
+        
+        // Update only this specific item's display directly (no calendar reload)
+        dayData.status = newStatus;
+        const statusConfig = STATUS_CONFIG[newStatus];
+        
+        // Update button appearance directly without full refresh
+        $item('#statusButton').label = statusConfig.text;
+        $item('#statusButton').style.backgroundColor = statusConfig.color;
+        
+        appendLog(`Status updated to ${statusConfig.text}`);
+        updateSystemStatus('Ready');
+        
+    } catch (error) {
+        console.error('Error updating status:', error);
+        appendLog(`Error updating status: ${error.message}`);
+        updateSystemStatus('Error updating status');
+    }
+}
+
+/**
+ * Legacy toggle day status function - maintains compatibility with existing code
+ * Wrapper for the new flash-free version with corrected $item parameter handling
+ */
+async function toggleDayStatus(dayData, $itemElement = null) {
+    // This function is kept for compatibility but uses the new flash-free version
+    await toggleDayStatusWithoutFlash(dayData, $itemElement);
+    
+    // Force refresh if no specific item provided (fallback behavior)
+    if (!$itemElement) {
+        await forceRefreshTourData();
+    }
+}
+
+/**
  * Setup booking counter display
+ * Shows current booking count for the day
  */
 function setupBookingCounter($item, itemData) {
     $item('#bookingCounterButton').label = itemData.bookedParticipants.toString();
@@ -707,6 +857,7 @@ function setupBookingCounter($item, itemData) {
 
 /**
  * Setup season tags with proper data handling
+ * Shows high/normal season indicators based on season data
  */
 function setupSeasonTags($item, itemData) {
     if (itemData.season === 'high') {
@@ -720,6 +871,7 @@ function setupSeasonTags($item, itemData) {
 
 /**
  * Setup menu buttons with robust click handling
+ * Configures calendar menu button with proper state management
  */
 function setupMenuButtons() {
     if ($w('#calendarMenu')) {
@@ -733,11 +885,11 @@ function setupMenuButtons() {
             if (isCalendarMenuOpen) {
                 closeCalendarDropdownRobust();
             } else {
-                // Close day dropdown if open
+                // Close day dropdown if open to prevent conflicts
                 if (isDayMenuOpen) {
                     closeDayDropdownRobust();
                 }
-                // Wait a moment then open calendar dropdown
+                // Wait a moment then open calendar dropdown for clean transition
                 setTimeout(() => {
                     openCalendarDropdownRobust();
                 }, 50);
@@ -751,9 +903,10 @@ function setupMenuButtons() {
 
 /**
  * Setup dropdown menu elements
+ * Configures dropdown menu items and their click handlers
  */
 function setupDropdownElements() {
-    // Ensure dropdown elements are hidden
+    // Ensure dropdown elements are hidden initially
     performCompleteSystemReset();
     
     // Setup calendar dropdown menu items
@@ -785,6 +938,7 @@ function setupDropdownElements() {
 
 /**
  * Open calendar dropdown with robust state management
+ * Shows calendar menu dropdown with proper state tracking
  */
 function openCalendarDropdownRobust() {
     console.log('Opening calendar dropdown robustly');
@@ -802,6 +956,7 @@ function openCalendarDropdownRobust() {
 
 /**
  * Close calendar dropdown with complete state cleanup
+ * Hides calendar dropdown and resets associated state
  */
 function closeCalendarDropdownRobust() {
     console.log('Closing calendar dropdown robustly');
@@ -821,6 +976,7 @@ function closeCalendarDropdownRobust() {
 
 /**
  * Handle calendar menu actions with tour selection validation
+ * Processes calendar-level menu actions with proper validation
  */
 async function handleCalendarMenuAction(action) {
     closeCalendarDropdownRobust();
@@ -828,7 +984,7 @@ async function handleCalendarMenuAction(action) {
     
     switch (action) {
         case 'generateAvailabilities':
-            // Check if tour is selected
+            // Check if tour is selected before proceeding
             if (!currentTourId) {
                 await wixWindow.openLightbox('messageLightbox', {
                     message: 'Select a tour from the menu.'
@@ -836,6 +992,7 @@ async function handleCalendarMenuAction(action) {
                 return;
             }
             
+            // Enhanced confirmation with tour information
             const confirmMessage = `This operation will generate availability dates for tour:\n\n"${currentTourLabel}".\n\nIf availabilities are already present, the database will be rebuilt.\nSoldout/available statuses and existing bookings will be preserved.\n\nContinue?`;
             
             try {
@@ -846,7 +1003,10 @@ async function handleCalendarMenuAction(action) {
                 if (result === 'confirm') {
                     updateSystemStatus('Generating availabilities...');
                     appendLog('Starting availability generation process');
-                    // TODO: Implement availability generation logic
+                    
+                    // Call backend function using corrected function name from Testing Page logic
+                    await handleGenerateAvailabilitiesFixed();
+                    
                     updateSystemStatus('Ready');
                     appendLog('Availability generation completed');
                 }
@@ -863,7 +1023,42 @@ async function handleCalendarMenuAction(action) {
 }
 
 /**
+ * Handle generate availabilities action with proper logic from Testing Page
+ * Uses the same working logic as implemented in the testing page
+ */
+async function handleGenerateAvailabilitiesFixed() {
+    if (!currentTourId) {
+        updateSystemStatus('No tour selected');
+        return;
+    }
+    
+    try {
+        updateSystemStatus('Generating availabilities...');
+        appendLog('Calling backend availability generation function');
+        
+        // Call backend function using the corrected function name and logic from Testing Page
+        const result = await generateAvailabilityForTour(currentTourId, false);
+        
+        if (result && result.status === "SUCCESS") {
+            // Reload tour data after successful generation
+            await onTourSelected({ target: { value: currentTourId } });
+            
+            appendLog('Availability generation completed successfully');
+            updateSystemStatus('Availabilities generated successfully');
+        } else {
+            throw new Error(result ? result.error : 'Unknown error in generation');
+        }
+        
+    } catch (error) {
+        console.error('Error generating availabilities:', error);
+        appendLog(`Error generating availabilities: ${error.message}`);
+        updateSystemStatus('Error generating availabilities');
+    }
+}
+
+/**
  * Handle day menu actions
+ * Processes day-specific menu actions
  */
 async function handleDayMenuAction(action, data) {
     closeDayDropdownRobust();
@@ -886,56 +1081,14 @@ async function handleDayMenuAction(action, data) {
 }
 
 /**
- * Toggle day status with improved refresh handling
- */
-async function toggleDayStatus(dayData) {
-    let newStatus;
-    
-    switch (dayData.status) {
-        case 'available':
-            newStatus = 'soldout';
-            break;
-        case 'soldout':
-            newStatus = 'available';
-            break;
-        case 'notoperating':
-            newStatus = 'available';
-            break;
-        case 'partiallysoldout':
-            newStatus = 'soldout';
-            break;
-        default:
-            newStatus = 'available';
-    }
-    
-    try {
-        updateSystemStatus('Updating status...');
-        appendLog(`Updating ${dayData.dateKey}: ${dayData.status} → ${newStatus}`);
-        
-        // Update status in database
-        await updateAvailabilityStatus(dayData.dateKey, newStatus);
-        
-        // Force complete refresh of tour data
-        await forceRefreshTourData();
-        
-        appendLog(`Status updated to ${STATUS_CONFIG[newStatus].text}`);
-        updateSystemStatus('Ready');
-        
-    } catch (error) {
-        console.error('Error updating status:', error);
-        appendLog(`Error updating status: ${error.message}`);
-        updateSystemStatus('Error updating status');
-    }
-}
-
-/**
- * Update availability status without adding updatedAt to array items
+ * Update availability status in database without adding updatedAt to array items
+ * Updates database record with clean data structure
  */
 async function updateAvailabilityStatus(dateKey, newStatus) {
     if (!currentTourId || !availabilityRecord) return;
     
     try {
-        // Preserve all existing record fields
+        // Preserve all existing record fields to maintain data integrity
         const updateData = {
             _id: availabilityRecord._id,
             availabilityId: availabilityRecord.availabilityId,
@@ -945,7 +1098,7 @@ async function updateAvailabilityStatus(dateKey, newStatus) {
             updatedAt: getJSTDate(new Date())
         };
         
-        // Process availability data array
+        // Process availability data array without corrupting existing structure
         const availabilityDataArray = [...(availabilityRecord.availabilityData || [])];
         const dateIndex = availabilityDataArray.findIndex(item => {
             const itemDate = new Date(item.date);
@@ -975,6 +1128,9 @@ async function updateAvailabilityStatus(dateKey, newStatus) {
         updateData.availabilityData = availabilityDataArray;
         await wixData.update('Availability', updateData);
         
+        // Update local availability record to maintain consistency
+        availabilityRecord.availabilityData = availabilityDataArray;
+        
         console.log('Database updated successfully');
         
     } catch (error) {
@@ -985,12 +1141,13 @@ async function updateAvailabilityStatus(dateKey, newStatus) {
 
 /**
  * Force complete refresh of tour data to ensure UI reflects database state
+ * Reloads all tour data from database for consistency
  */
 async function forceRefreshTourData() {
     if (!currentTourId) return;
     
     try {
-        // Clear all cached data
+        // Clear all cached data to ensure fresh state
         availabilityData = {};
         availabilityRecord = null;
         
@@ -1015,6 +1172,7 @@ async function forceRefreshTourData() {
 
 /**
  * Open time slots lightbox for day configuration
+ * Manages time slot configuration for specific days
  */
 async function openTimeSlotsLightbox(dayData) {
     try {
@@ -1049,6 +1207,7 @@ async function openTimeSlotsLightbox(dayData) {
 
 /**
  * Set day as not operating status
+ * Marks specific day as non-operational
  */
 async function setDayNotOperating(dayData) {
     try {
@@ -1057,7 +1216,7 @@ async function setDayNotOperating(dayData) {
         
         await updateAvailabilityStatus(dayData.dateKey, 'notoperating');
         
-        // Force complete refresh after update
+        // Force complete refresh after update to ensure consistency
         await forceRefreshTourData();
         
         appendLog('Day set as not operating');
@@ -1072,11 +1231,12 @@ async function setDayNotOperating(dayData) {
 
 /**
  * Setup navigation buttons with tour selection requirement
+ * Configures month navigation with proper validation
  */
 function setupNavigationButtons() {
     if ($w('#prevMonthButton')) {
         $w('#prevMonthButton').onClick(() => {
-            // Only allow navigation if tour is selected
+            // Only allow navigation if tour is selected (prevents navigation bugs)
             if (currentTourId) {
                 changeMonth(-1);
             }
@@ -1085,7 +1245,7 @@ function setupNavigationButtons() {
     
     if ($w('#nextMonthButton')) {
         $w('#nextMonthButton').onClick(() => {
-            // Only allow navigation if tour is selected
+            // Only allow navigation if tour is selected (prevents navigation bugs)
             if (currentTourId) {
                 changeMonth(1);
             }
@@ -1095,6 +1255,7 @@ function setupNavigationButtons() {
 
 /**
  * Hide navigation buttons when no tour is selected to prevent navigation bugs
+ * Ensures navigation is only available when appropriate
  */
 function hideNavigationButtons() {
     if ($w('#prevMonthButton')) {
@@ -1108,6 +1269,7 @@ function hideNavigationButtons() {
 
 /**
  * Update navigation button visibility based on tour selection and available date range
+ * Manages navigation button state based on data availability
  */
 function updateNavigationButtons() {
     // Show buttons only if tour is selected
@@ -1116,7 +1278,7 @@ function updateNavigationButtons() {
         return;
     }
     
-    // If no date range, show both buttons
+    // If no date range, show both buttons (allow free navigation)
     if (!availableDateRange.min || !availableDateRange.max) {
         $w('#prevMonthButton').show();
         $w('#nextMonthButton').show();
@@ -1144,9 +1306,10 @@ function updateNavigationButtons() {
 
 /**
  * Change current month with range checking and tour validation
+ * Handles month navigation with proper validation and data loading
  */
 async function changeMonth(direction) {
-    // Prevent navigation if no tour selected
+    // Prevent navigation if no tour selected (prevents bugs)
     if (!currentTourId) {
         appendLog('Cannot navigate - no tour selected');
         return;
@@ -1172,7 +1335,7 @@ async function changeMonth(direction) {
     
     appendLog(`Changed to ${MONTH_NAMES[currentDate.getMonth()]} ${currentDate.getFullYear()}`);
     
-    // Reload calendar if tour is selected
+    // Reload calendar if tour is selected and data is available
     if (currentTourId && availabilityRecord) {
         updateSystemStatus('Loading month data...');
         await populateCalendar();
@@ -1182,6 +1345,7 @@ async function changeMonth(direction) {
 
 /**
  * Update calendar month and year display
+ * Updates the calendar header with current month/year
  */
 function updateCalendarDisplay() {
     $w('#calendarMonth').text = MONTH_NAMES[currentDate.getMonth()];
@@ -1190,6 +1354,7 @@ function updateCalendarDisplay() {
 
 /**
  * Show loading state with proper element management
+ * Displays initial loading state before tour selection
  */
 function showLoadingState() {
     $w('#loadingBox').expand();
@@ -1200,6 +1365,7 @@ function showLoadingState() {
 
 /**
  * Show loading animation during data operations
+ * Displays loading animation during data fetching and processing
  */
 function showLoadingAnimation() {
     $w('#loadingBox').expand();
@@ -1210,6 +1376,7 @@ function showLoadingAnimation() {
 
 /**
  * Show calendar state when data is loaded
+ * Displays calendar when data is successfully loaded and processed
  */
 function showCalendarState() {
     $w('#loadingBox').collapse();
@@ -1220,6 +1387,7 @@ function showCalendarState() {
 
 /**
  * Update system status message for user feedback
+ * Provides real-time status updates to users
  */
 function updateSystemStatus(message) {
     try {
@@ -1234,6 +1402,7 @@ function updateSystemStatus(message) {
 
 /**
  * Append log message with timestamp
+ * Maintains activity log with timestamped entries
  */
 function appendLog(message) {
     try {
@@ -1252,6 +1421,7 @@ function appendLog(message) {
             const currentLog = $w('#logOutput').text || '';
             const newLog = logMessage + '\n' + currentLog;
             
+            // Keep only last 100 log entries to prevent memory issues
             const lines = newLog.split('\n');
             $w('#logOutput').text = lines.slice(0, 100).join('\n');
         }
@@ -1262,14 +1432,16 @@ function appendLog(message) {
 
 /**
  * Get season info for a date - placeholder for future implementation
+ * Determines if date falls within high season periods
  */
 function getSeasonInfo(date) {
-    // TODO: Implement high season period checking
+    // TODO: Implement high season period checking against HighSeasonPeriods collection
     return 'normal';
 }
 
 /**
- * JST date utility functions
+ * JST date utility functions for timezone handling
+ * Provides Japan Standard Time conversion utilities
  */
 function getJSTDate(date) {
     const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
@@ -1283,6 +1455,7 @@ function formatDateKey(date) {
 
 /**
  * Simple date key formatting without JST conversion for consistent matching
+ * Provides consistent date key format for database operations
  */
 function formatDateKeySimple(date) {
     const year = date.getFullYear();
@@ -1295,7 +1468,7 @@ function parseDateKey(dateKey) {
     return new Date(dateKey + 'T00:00:00.000Z');
 }
 
-// Export functions for testing
+// Export functions for testing and external access
 export { 
     setupTourSelector,
     loadAvailabilityData,
