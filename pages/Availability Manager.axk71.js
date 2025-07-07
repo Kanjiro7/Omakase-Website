@@ -834,6 +834,96 @@ async function toggleDayStatusWithoutFlash(dayData, $item) {
 }
 
 /**
+ * Set day as not operating status without flash - NEW ENHANCED METHOD
+ * Updates only the specific changed element using the same pattern as toggle status
+ */
+async function setDayNotOperatingWithoutFlash(dayData) {
+    try {
+        updateSystemStatus('Setting not operating...');
+        appendLog(`Setting ${dayData.dateKey} as not operating`);
+        
+        // Update status in database
+        await updateAvailabilityStatus(dayData.dateKey, 'notoperating');
+        
+        // Update local data without reloading entire calendar (prevents flash)
+        if (availabilityData[dayData.dateKey]) {
+            availabilityData[dayData.dateKey].status = 'notoperating';
+        }
+        
+        // Find and update the specific calendar item without flash
+        $w('#calendarRepeater').forEachItem(($item, itemData) => {
+            if (itemData.dateKey === dayData.dateKey) {
+                // Update item data
+                itemData.status = 'notoperating';
+                
+                // Update button appearance directly without full refresh
+                const statusConfig = STATUS_CONFIG.notoperating;
+                $item('#statusButton').label = statusConfig.text;
+                $item('#statusButton').style.backgroundColor = statusConfig.color;
+            }
+        });
+        
+        appendLog('Day set as not operating');
+        updateSystemStatus('Ready');
+        
+    } catch (error) {
+        console.error('Error setting day as not operating:', error);
+        appendLog(`Error setting not operating: ${error.message}`);
+        updateSystemStatus('Error setting day status');
+    }
+}
+
+/**
+ * Refresh availability states without flash after generation - NEW METHOD
+ * Updates all calendar elements with new states without reloading the calendar
+ */
+async function refreshAvailabilityStatesWithoutFlash() {
+    try {
+        updateSystemStatus('Refreshing availability states...');
+        appendLog('Refreshing calendar states without flash...');
+        
+        // Reload availability data from database
+        await loadAvailabilityData();
+        
+        // Update each calendar item without reloading the entire calendar
+        $w('#calendarRepeater').forEachItem(($item, itemData) => {
+            const dateKey = itemData.dateKey;
+            const newAvailability = availabilityData[dateKey];
+            
+            if (newAvailability) {
+                // Update item data
+                itemData.status = newAvailability.status;
+                itemData.hasAvailabilityData = true;
+                itemData.bookedParticipants = newAvailability.bookedParticipants || 0;
+                
+                // Show status button and update appearance
+                $item('#statusButton').show();
+                const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
+                $item('#statusButton').label = statusConfig.text;
+                $item('#statusButton').style.backgroundColor = statusConfig.color;
+                
+                // Update booking counter
+                $item('#bookingCounterButton').label = itemData.bookedParticipants.toString();
+                
+                console.log(`Updated ${dateKey} to ${newAvailability.status} without flash`);
+            } else {
+                // Hide status button for days without availability data
+                $item('#statusButton').hide();
+                itemData.hasAvailabilityData = false;
+            }
+        });
+        
+        appendLog('Calendar states refreshed successfully without flash');
+        updateSystemStatus('Ready');
+        
+    } catch (error) {
+        console.error('Error refreshing availability states:', error);
+        appendLog(`Error refreshing states: ${error.message}`);
+        updateSystemStatus('Error refreshing states');
+    }
+}
+
+/**
  * Legacy toggle day status function - maintains compatibility with existing code
  * Wrapper for the new flash-free version with corrected $item parameter handling
  */
@@ -1024,7 +1114,7 @@ async function handleCalendarMenuAction(action) {
 
 /**
  * Handle generate availabilities action with proper logic from Testing Page
- * Uses the same working logic as implemented in the testing page
+ * Enhanced with no-flash state refresh after generation - UPDATED METHOD
  */
 async function handleGenerateAvailabilitiesFixed() {
     if (!currentTourId) {
@@ -1040,8 +1130,12 @@ async function handleGenerateAvailabilitiesFixed() {
         const result = await generateAvailabilityForTour(currentTourId, false);
         
         if (result && result.status === "SUCCESS") {
-            // Reload tour data after successful generation
-            await onTourSelected({ target: { value: currentTourId } });
+            // Instead of reloading entire tour data, refresh states without flash
+            updateSystemStatus('Refreshing calendar...');
+            appendLog('Availability generation successful, refreshing states...');
+            
+            // Use the new no-flash refresh method
+            await refreshAvailabilityStatesWithoutFlash();
             
             appendLog('Availability generation completed successfully');
             updateSystemStatus('Availabilities generated successfully');
@@ -1058,7 +1152,7 @@ async function handleGenerateAvailabilitiesFixed() {
 
 /**
  * Handle day menu actions
- * Processes day-specific menu actions
+ * Processes day-specific menu actions with enhanced no-flash methods
  */
 async function handleDayMenuAction(action, data) {
     closeDayDropdownRobust();
@@ -1075,7 +1169,8 @@ async function handleDayMenuAction(action, data) {
             await openTimeSlotsLightbox(data);
             break;
         case 'setNotOperating':
-            await setDayNotOperating(data);
+            // Use new no-flash method for setting not operating
+            await setDayNotOperatingWithoutFlash(data);
             break;
     }
 }
@@ -1206,27 +1301,12 @@ async function openTimeSlotsLightbox(dayData) {
 }
 
 /**
- * Set day as not operating status
- * Marks specific day as non-operational
+ * Legacy set day not operating function - maintains compatibility
+ * Wrapper that redirects to the new no-flash version
  */
 async function setDayNotOperating(dayData) {
-    try {
-        updateSystemStatus('Setting not operating...');
-        appendLog(`Setting ${dayData.dateKey} as not operating`);
-        
-        await updateAvailabilityStatus(dayData.dateKey, 'notoperating');
-        
-        // Force complete refresh after update to ensure consistency
-        await forceRefreshTourData();
-        
-        appendLog('Day set as not operating');
-        updateSystemStatus('Ready');
-        
-    } catch (error) {
-        console.error('Error setting day as not operating:', error);
-        appendLog(`Error setting not operating: ${error.message}`);
-        updateSystemStatus('Error setting day status');
-    }
+    // Use the new no-flash method instead of the old refresh method
+    await setDayNotOperatingWithoutFlash(dayData);
 }
 
 /**
