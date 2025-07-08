@@ -107,18 +107,11 @@ $w.onReady(async function () {
 });
 
 /**
- * Setup calendar month dropdown functionality - CORRECTED VERSION
- * Handles dynamic population and selection of available months (dropdown arrow hidden via CSS in editor)
- */
-/**
- * Setup calendar month dropdown functionality with enhanced styling - ENHANCED VERSION
- * Handles dynamic population, selection of available months, and dropdown arrow hiding
+ * Setup calendar month dropdown functionality - ENHANCED VERSION
+ * Handles dynamic population and selection of available months
  */
 function setupCalendarMonthDropdown() {
     console.log('Setting up calendar month dropdown...');
-    
-    // Hide dropdown arrow for cleaner interface - CORRECTED METHOD
-    hideDropdownArrow();
     
     // Setup click handler to populate dropdown on first click
     $w('#calendarMonth').onClick(() => {
@@ -132,50 +125,7 @@ function setupCalendarMonthDropdown() {
         handleMonthDropdownChange(event);
     });
     
-    console.log('Calendar month dropdown configured with hidden arrow');
-}
-
-/**
- * Hide dropdown arrow for cleaner interface - CORRECTED VERSION
- * Removes the native browser dropdown arrow (small icon that flips up/down)
- */
-function hideDropdownArrow() {
-    try {
-        // Remove native dropdown arrow using correct CSS properties
-        const monthElement = $w('#calendarMonth');
-        
-        // Method 1: Remove native appearance to hide dropdown arrow
-        monthElement.style.appearance = 'none';
-        monthElement.style.webkitAppearance = 'none';
-        monthElement.style.mozAppearance = 'none';
-        
-        // Method 2: Additional properties to ensure arrow removal
-        monthElement.style.backgroundImage = 'none';
-        
-        // Method 3: Force override with important declarations
-        setTimeout(() => {
-            try {
-                // Apply CSS text with important declarations to override browser defaults
-                const currentStyle = monthElement.style.cssText || '';
-                monthElement.style.cssText = currentStyle + `
-                    appearance: none !important;
-                    -webkit-appearance: none !important;
-                    -moz-appearance: none !important;
-                    background-image: none !important;
-                `;
-                
-                console.log('Applied enhanced dropdown arrow removal');
-            } catch (error) {
-                console.warn('Could not apply enhanced arrow removal:', error);
-            }
-        }, 100);
-        
-        console.log('Dropdown arrow removal initiated');
-        
-    } catch (error) {
-        console.warn('Could not hide dropdown arrow:', error);
-        appendLog('Warning: Could not hide dropdown arrow');
-    }
+    console.log('Calendar month dropdown configured');
 }
 
 /**
@@ -329,7 +279,7 @@ function resetMonthDropdown() {
 }
 
 /**
- * Update calendar display to show current date - ENHANCED FUNCTION
+ * Update calendar display to show current date - NEW ENHANCED FUNCTION
  * Shows current month and year even when no tour is selected
  */
 function updateCalendarDisplayToCurrentDate() {
