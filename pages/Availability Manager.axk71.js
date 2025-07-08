@@ -79,10 +79,10 @@ $w.onReady(async function () {
     showLoadingState();
     updateSystemStatus('Loading system components...');
     
-    // Initialize calendar display with current date
-    updateCalendarDisplay();
+    // Initialize calendar display with current date - show current date even when no tour selected
+    updateCalendarDisplayToCurrentDate();
     
-    // Setup calendar month dropdown functionality - NEW FEATURE
+    // Setup calendar month dropdown functionality
     setupCalendarMonthDropdown();
     
     // Setup repeater handlers before any data operations - critical for proper initialization
@@ -107,11 +107,18 @@ $w.onReady(async function () {
 });
 
 /**
- * Setup calendar month dropdown functionality - NEW FEATURE
- * Handles dynamic population and selection of available months
+ * Setup calendar month dropdown functionality - CORRECTED VERSION
+ * Handles dynamic population and selection of available months (dropdown arrow hidden via CSS in editor)
+ */
+/**
+ * Setup calendar month dropdown functionality with enhanced styling - ENHANCED VERSION
+ * Handles dynamic population, selection of available months, and dropdown arrow hiding
  */
 function setupCalendarMonthDropdown() {
     console.log('Setting up calendar month dropdown...');
+    
+    // Hide dropdown arrow for cleaner interface - CORRECTED METHOD
+    hideDropdownArrow();
     
     // Setup click handler to populate dropdown on first click
     $w('#calendarMonth').onClick(() => {
@@ -125,12 +132,55 @@ function setupCalendarMonthDropdown() {
         handleMonthDropdownChange(event);
     });
     
-    console.log('Calendar month dropdown configured');
+    console.log('Calendar month dropdown configured with hidden arrow');
 }
 
 /**
- * Populate month dropdown with available months from data - NEW FEATURE
- * Creates options in format "Month YYYY" from availability data
+ * Hide dropdown arrow for cleaner interface - CORRECTED VERSION
+ * Removes the native browser dropdown arrow (small icon that flips up/down)
+ */
+function hideDropdownArrow() {
+    try {
+        // Remove native dropdown arrow using correct CSS properties
+        const monthElement = $w('#calendarMonth');
+        
+        // Method 1: Remove native appearance to hide dropdown arrow
+        monthElement.style.appearance = 'none';
+        monthElement.style.webkitAppearance = 'none';
+        monthElement.style.mozAppearance = 'none';
+        
+        // Method 2: Additional properties to ensure arrow removal
+        monthElement.style.backgroundImage = 'none';
+        
+        // Method 3: Force override with important declarations
+        setTimeout(() => {
+            try {
+                // Apply CSS text with important declarations to override browser defaults
+                const currentStyle = monthElement.style.cssText || '';
+                monthElement.style.cssText = currentStyle + `
+                    appearance: none !important;
+                    -webkit-appearance: none !important;
+                    -moz-appearance: none !important;
+                    background-image: none !important;
+                `;
+                
+                console.log('Applied enhanced dropdown arrow removal');
+            } catch (error) {
+                console.warn('Could not apply enhanced arrow removal:', error);
+            }
+        }, 100);
+        
+        console.log('Dropdown arrow removal initiated');
+        
+    } catch (error) {
+        console.warn('Could not hide dropdown arrow:', error);
+        appendLog('Warning: Could not hide dropdown arrow');
+    }
+}
+
+/**
+ * Populate month dropdown with available months from data - CORRECTED VERSION
+ * Creates options in format "Month YYYY" for ALL months including current
  */
 function populateMonthDropdown() {
     try {
@@ -153,7 +203,7 @@ function populateMonthDropdown() {
             const [year, month] = monthYear.split('-');
             const monthName = MONTH_NAMES[parseInt(month)];
             return {
-                label: `${monthName} ${year}`,  // Display format: "July 2025"
+                label: `${monthName} ${year}`,  // Display format: "July 2025" for ALL months
                 value: monthYear,               // Value format: "2025-06"
                 monthName: monthName,           // Just month name: "July"
                 year: parseInt(year),           // Year as number: 2025
@@ -161,9 +211,9 @@ function populateMonthDropdown() {
             };
         });
         
-        // Set dropdown options
+        // Set dropdown options - all months have year in label
         $w('#calendarMonth').options = availableMonths.map(month => ({
-            label: month.label,
+            label: month.label,  // This will be "July 2025", "August 2025", etc. for ALL months
             value: month.value
         }));
         
@@ -173,7 +223,7 @@ function populateMonthDropdown() {
         
         if (currentMonth) {
             $w('#calendarMonth').value = currentMonth.value;
-            // Update display to show only month name
+            // Update display to show only month name after selection
             setTimeout(() => {
                 updateMonthDisplayText(currentMonth.monthName);
             }, 100);
@@ -190,7 +240,7 @@ function populateMonthDropdown() {
 }
 
 /**
- * Handle month dropdown selection change - NEW FEATURE
+ * Handle month dropdown selection change
  * Updates calendar view and display when user selects a month
  */
 function handleMonthDropdownChange(event) {
@@ -232,7 +282,7 @@ function handleMonthDropdownChange(event) {
 }
 
 /**
- * Update month display text to show only month name - NEW HELPER FUNCTION
+ * Update month display text to show only month name
  * Ensures dropdown shows only month name while maintaining full data in options
  */
 function updateMonthDisplayText(monthName) {
@@ -265,17 +315,39 @@ function updateMonthDisplayText(monthName) {
 }
 
 /**
- * Reset month dropdown when tour changes - NEW HELPER FUNCTION
+ * Reset month dropdown when tour changes
  * Clears dropdown state when switching tours
  */
 function resetMonthDropdown() {
     isMonthDropdownPopulated = false;
     availableMonths = [];
     
-    // Reset dropdown to empty state
-    $w('#calendarMonth').options = [];
+    // Reset dropdown to current month display (no tour selected state)
+    updateCalendarDisplayToCurrentDate();
     
     console.log('Month dropdown reset for new tour');
+}
+
+/**
+ * Update calendar display to show current date - ENHANCED FUNCTION
+ * Shows current month and year even when no tour is selected
+ */
+function updateCalendarDisplayToCurrentDate() {
+    const now = new Date();
+    const currentMonthName = MONTH_NAMES[now.getMonth()];
+    const currentYear = now.getFullYear();
+    
+    // Update year text to current year
+    $w('#yearText').text = currentYear.toString();
+    
+    // Set month dropdown to show current month (no year in display)
+    $w('#calendarMonth').options = [{ 
+        label: currentMonthName,  // Show only month name: "July"
+        value: `${currentYear}-${String(now.getMonth()).padStart(2, '0')}` 
+    }];
+    $w('#calendarMonth').value = `${currentYear}-${String(now.getMonth()).padStart(2, '0')}`;
+    
+    console.log(`Calendar display set to current date: ${currentMonthName} ${currentYear}`);
 }
 
 /**
@@ -634,7 +706,7 @@ async function onTourSelected(event) {
         availabilityData = {};
         availabilityRecord = null;
         
-        // Reset month dropdown
+        // Reset month dropdown and display current date
         resetMonthDropdown();
         
         // Hide navigation buttons when no tour is selected (prevents navigation bugs)
@@ -1298,7 +1370,7 @@ async function handleCalendarMenuAction(action) {
 
 /**
  * Handle generate availabilities action with proper logic from Testing Page
- * Enhanced with no-flash state refresh after generation - UPDATED METHOD
+ * Enhanced with no-flash state refresh after generation
  */
 async function handleGenerateAvailabilitiesFixed() {
     if (!currentTourId) {
