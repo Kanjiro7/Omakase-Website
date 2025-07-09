@@ -13,11 +13,11 @@ const COLORS = {
     
     // Background colors for calendar days
     BG_CURRENT_MONTH: '#FFFFFF',   // Current month days background
-    BG_OTHER_MONTH: '#B7BFC5',     // Non-current month days background
+    BG_OTHER_MONTH: '#EEECEC',     // Non-current month days background
     
     // Border colors (4px borders, coordinated with backgrounds)
     BORDER_CURRENT_MONTH: '#FFFFFF',  // Normal days border (matches background)
-    BORDER_OTHER_MONTH: '#B7BFC5',    // Non-current month days border (matches background)
+    BORDER_OTHER_MONTH: '#EEECEC',    // Non-current month days border (matches background)
     BORDER_TODAY: '#567FCB',           // Current day border highlight (blue)
     
     // Status colors for availability states
@@ -41,6 +41,7 @@ let availableDateRange = { min: null, max: null };
 let lastSelectedTourId = null;
 let availableMonths = []; // Store available months from data
 let isMonthDropdownPopulated = false; // Track if dropdown has been populated
+let isInitializationComplete = false; // Track if all initialization is complete
 
 // Robust dropdown state management - improved pattern to prevent flash effects
 let globalClickListener = null;
@@ -67,30 +68,26 @@ const STATUS_CONFIG = {
     partiallysoldout: { text: 'Slots', color: COLORS.STATUS_PARTIAL }
 };
 
-// Initialize page when ready - enhanced with proper loading sequence
+// Initialize page when ready - sets up all components and handlers with proper loading states
 $w.onReady(async function () {
     console.log('Availability Manager initializing...');
     appendLog('Availability Manager initializing...');
     
+    // Show loading state immediately while components are being set up
+    showLoadingState();
+    updateSystemStatus('Initializing components...');
+    
     // Complete system reset on page ready to prevent state issues
     performCompleteSystemReset();
     
-    // Set initial loading state with proper loading message
-    showLoadingState();
-    updateSystemStatus('Loading system...');
-    
-    // Initialize calendar display with current date - show current date even when no tour selected
+    // Initialize calendar display with current date
     updateCalendarDisplayToCurrentDate();
     
-    // Setup calendar month dropdown functionality
+    // Setup calendar month dropdown functionality 
     setupCalendarMonthDropdown();
     
     // Setup repeater handlers before any data operations - critical for proper initialization
     setupRepeaterHandlers();
-    
-    // Setup tour selector dropdown with database integration
-    updateSystemStatus('Loading tours...');
-    await setupTourSelector();
     
     // Setup navigation buttons with range checking for tour-based navigation
     setupNavigationButtons();
@@ -102,15 +99,21 @@ $w.onReady(async function () {
     // Initially hide navigation buttons since no tour is selected (prevents navigation bugs)
     hideNavigationButtons();
     
-    // Show ready state only after all initialization is complete
-    appendLog('Availability Manager initialized successfully');
+    // Load tours data and wait for completion before showing ready state
+    updateSystemStatus('Loading tours from database...');
+    await setupTourSelector();
+    
+    // Mark initialization as complete and show appropriate ready state
+    isInitializationComplete = true;
     updateSystemStatus('Ready - Select a tour');
+    
+    appendLog('Availability Manager initialized successfully');
     console.log('Availability Manager initialized successfully');
 });
 
 /**
- * Setup calendar month dropdown functionality
- * Handles dynamic population and selection of available months
+ * Setup calendar month dropdown functionality - SIMPLIFIED VERSION
+ * Handles dynamic population and selection with consistent Month Year format
  */
 function setupCalendarMonthDropdown() {
     console.log('Setting up calendar month dropdown...');
@@ -131,8 +134,8 @@ function setupCalendarMonthDropdown() {
 }
 
 /**
- * Populate month dropdown with available months from data
- * Creates options in format "Month YYYY" for ALL months including current
+ * Populate month dropdown with available months - SIMPLIFIED VERSION
+ * Creates options in consistent "Month Year" format for both display and options
  */
 function populateMonthDropdown() {
     try {
@@ -155,7 +158,7 @@ function populateMonthDropdown() {
             const [year, month] = monthYear.split('-');
             const monthName = MONTH_NAMES[parseInt(month)];
             return {
-                label: `${monthName} ${year}`,  // Display format: "July 2025" for ALL months
+                label: `${monthName} ${year}`,  // Consistent format: "July 2025"
                 value: monthYear,               // Value format: "2025-06"
                 monthName: monthName,           // Just month name: "July"
                 year: parseInt(year),           // Year as number: 2025
@@ -163,9 +166,9 @@ function populateMonthDropdown() {
             };
         });
         
-        // Set dropdown options - all months have year in label
+        // Set dropdown options with consistent Month Year format
         $w('#calendarMonth').options = availableMonths.map(month => ({
-            label: month.label,  // This will be "July 2025", "August 2025", etc. for ALL months
+            label: month.label,  // Always "Month Year" format
             value: month.value
         }));
         
@@ -175,10 +178,7 @@ function populateMonthDropdown() {
         
         if (currentMonth) {
             $w('#calendarMonth').value = currentMonth.value;
-            // Update display to show only month name after selection
-            setTimeout(() => {
-                updateMonthDisplayText(currentMonth.monthName);
-            }, 100);
+            // No text manipulation - let the dropdown show the full label naturally
         }
         
         isMonthDropdownPopulated = true;
@@ -193,7 +193,7 @@ function populateMonthDropdown() {
 
 /**
  * Handle month dropdown selection change
- * Updates calendar view and display when user selects a month
+ * Updates calendar view when user selects a month
  */
 function handleMonthDropdownChange(event) {
     try {
@@ -209,9 +209,6 @@ function handleMonthDropdownChange(event) {
             
             // Update year display
             $w('#yearText').text = selectedMonth.year.toString();
-            
-            // Update month display to show only month name (without year)
-            updateMonthDisplayText(selectedMonth.monthName);
             
             // Update navigation buttons for new month
             updateNavigationButtons();
@@ -234,39 +231,6 @@ function handleMonthDropdownChange(event) {
 }
 
 /**
- * Update month display text to show only month name
- * Ensures dropdown shows only month name while maintaining full data in options
- */
-function updateMonthDisplayText(monthName) {
-    // Use setTimeout to ensure the DOM has updated
-    setTimeout(() => {
-        try {
-            // Update the display text while keeping full options
-            const monthDropdown = $w('#calendarMonth');
-            
-            // Create a temporary option with just the month name for display
-            const currentOptions = monthDropdown.options;
-            const currentValue = monthDropdown.value;
-            
-            // Update the selected option's label temporarily for display
-            const updatedOptions = currentOptions.map(option => {
-                if (option.value === currentValue) {
-                    return { ...option, label: monthName };
-                }
-                return option;
-            });
-            
-            // Update options to trigger display refresh
-            monthDropdown.options = updatedOptions;
-            monthDropdown.value = currentValue;
-            
-        } catch (error) {
-            console.warn('Could not update month display text:', error);
-        }
-    }, 50);
-}
-
-/**
  * Reset month dropdown when tour changes
  * Clears dropdown state when switching tours
  */
@@ -281,8 +245,8 @@ function resetMonthDropdown() {
 }
 
 /**
- * Update calendar display to show current date
- * Shows current month and year even when no tour is selected
+ * Update calendar display to show current date - ENHANCED VERSION
+ * Shows current month and year consistently formatted
  */
 function updateCalendarDisplayToCurrentDate() {
     const now = new Date();
@@ -292,9 +256,9 @@ function updateCalendarDisplayToCurrentDate() {
     // Update year text to current year
     $w('#yearText').text = currentYear.toString();
     
-    // Set month dropdown to show current month (no year in display)
+    // Set month dropdown to show current month with year
     $w('#calendarMonth').options = [{ 
-        label: currentMonthName,  // Show only month name: "July"
+        label: `${currentMonthName} ${currentYear}`,  // Consistent format: "July 2025"
         value: `${currentYear}-${String(now.getMonth()).padStart(2, '0')}` 
     }];
     $w('#calendarMonth').value = `${currentYear}-${String(now.getMonth()).padStart(2, '0')}`;
@@ -303,28 +267,7 @@ function updateCalendarDisplayToCurrentDate() {
 }
 
 /**
- * Check if a date is in the past - NEW HELPER FUNCTION
- * Determines if a date is before today (used for hiding past days status buttons)
- */
-function isDateInPast(date) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-    return checkDate < today;
-}
-
-/**
- * Check if a date is in the current displayed month - NEW HELPER FUNCTION
- * Determines if a date belongs to the currently displayed month
- */
-function isDateInCurrentDisplayedMonth(date) {
-    return date.getMonth() === currentDate.getMonth() && 
-           date.getFullYear() === currentDate.getFullYear();
-}
-
-/**
- * Perform complete system reset to prevent state accumulation - robust pattern
+ * Perform complete system reset to prevent state accumulation
  * Resets all global variables and UI states to clean initial state
  */
 function performCompleteSystemReset() {
@@ -339,6 +282,7 @@ function performCompleteSystemReset() {
     menuButtonClicked = false;
     clickHandlerSetupComplete = false;
     operationCounter = 0;
+    isInitializationComplete = false;
     
     // Reset month dropdown state
     resetMonthDropdown();
@@ -358,7 +302,7 @@ function performCompleteSystemReset() {
 }
 
 /**
- * Force remove all click handlers to prevent accumulation - robust pattern
+ * Force remove all click handlers to prevent accumulation
  * Cleans up all global event handlers to prevent memory leaks and conflicts
  */
 function forceRemoveAllHandlers() {
@@ -376,7 +320,7 @@ function forceRemoveAllHandlers() {
 }
 
 /**
- * Setup global click listener with robust state management - improved pattern
+ * Setup global click listener with robust state management
  * Handles outside clicks for dropdown closure without conflicts
  */
 function setupRobustGlobalClickListener() {
@@ -433,7 +377,7 @@ function setupRobustGlobalClickListener() {
 }
 
 /**
- * Robust day dropdown toggle with complete state management - improved pattern
+ * Robust day dropdown toggle with complete state management
  * Manages day-specific dropdown menus with proper state tracking
  */
 function toggleDayDropdownRobust(event, dayData) {
@@ -463,7 +407,7 @@ function toggleDayDropdownRobust(event, dayData) {
 }
 
 /**
- * Open day dropdown with robust state tracking - improved pattern
+ * Open day dropdown with robust state tracking
  * Opens day-specific dropdown menu with proper element targeting
  */
 function openDayDropdownRobust(event, dayData) {
@@ -510,7 +454,7 @@ function openDayDropdownRobust(event, dayData) {
 }
 
 /**
- * Close day dropdown with complete state cleanup - improved pattern
+ * Close day dropdown with complete state cleanup
  * Properly closes dropdown and resets all associated state variables
  */
 function closeDayDropdownRobust() {
@@ -535,7 +479,7 @@ function closeDayDropdownRobust() {
 }
 
 /**
- * Perform complete day dropdown state reset - robust pattern
+ * Perform complete day dropdown state reset
  * Resets all day dropdown related state variables
  */
 function performDayDropdownStateReset() {
@@ -553,7 +497,7 @@ function performDayDropdownStateReset() {
 }
 
 /**
- * Setup repeater item handlers with robust event management - improved pattern
+ * Setup repeater item handlers with robust event management
  * Configures the 42-element calendar repeater with proper event handling
  */
 function setupRepeaterHandlers() {
@@ -612,8 +556,8 @@ function setupRepeaterHandlers() {
 }
 
 /**
- * Setup tour selector dropdown using urlName for display
- * Loads tours from database and populates dropdown options
+ * Setup tour selector dropdown using urlName for display - ENHANCED WITH LOADING STATES
+ * Loads tours from database and populates dropdown options with proper loading feedback
  */
 async function setupTourSelector() {
     try {
@@ -631,6 +575,7 @@ async function setupTourSelector() {
         if (toursQuery.items.length === 0) {
             $w('#tourSelector').options = [{ label: 'No tours found', value: '' }];
             appendLog('No tours found in database');
+            updateSystemStatus('No tours available');
             return;
         }
         
@@ -652,9 +597,15 @@ async function setupTourSelector() {
         appendLog(`Successfully loaded ${toursQuery.items.length} tours in dropdown`);
         console.log('Tour dropdown populated successfully');
         
+        // Only show ready state if initialization is complete
+        if (isInitializationComplete) {
+            updateSystemStatus('Ready - Select a tour');
+        }
+        
     } catch (error) {
         console.error('Error setting up tour selector:', error);
         appendLog(`Error loading tours: ${error.message}`);
+        updateSystemStatus('Error loading tours');
         $w('#tourSelector').options = [{ label: 'Error loading tours', value: '' }];
     }
 }
@@ -703,7 +654,7 @@ async function onTourSelected(event) {
     currentTourLabel = selectedTour ? (selectedTour.urlName || selectedTour.title || selectedTour._id) : selectedValue;
     
     showLoadingAnimation();
-    updateSystemStatus('Loading fresh availability data...');
+    updateSystemStatus('Loading availability data...');
     
     try {
         appendLog(`Loading availability for: ${currentTourLabel}`);
@@ -971,27 +922,19 @@ async function populateCalendar() {
 }
 
 /**
- * Setup status button with improved visibility control - ENHANCED FOR PAST DATES
- * Configures button appearance and click handler for status management, hides for past dates
+ * Setup status button with improved visibility control and centralized colors
+ * Configures button appearance and click handler for status management
  */
 function setupStatusButton($item, itemData, index) {
     console.log(`Setting up status button for day ${itemData.dayNumber}: hasData=${itemData.hasAvailabilityData}, isCurrentMonth=${itemData.isCurrentMonth}`);
     
-    // Hide status button if no availability data
+    // Show status button only for days with availability data
     if (!itemData.hasAvailabilityData) {
         $item('#statusButton').hide();
         console.log(`Hiding status button for day ${itemData.dayNumber} - no availability data`);
         return;
     }
     
-    // NEW: Hide status button for past dates in current displayed month
-    if (isDateInCurrentDisplayedMonth(itemData.date) && isDateInPast(itemData.date)) {
-        $item('#statusButton').hide();
-        console.log(`Hiding status button for day ${itemData.dayNumber} - past date in current month`);
-        return;
-    }
-    
-    // Show status button for valid dates (future dates or other months)
     $item('#statusButton').show();
     console.log(`Showing status button for day ${itemData.dayNumber} with status ${itemData.status}`);
     
@@ -1104,7 +1047,7 @@ async function setDayNotOperatingWithoutFlash(dayData) {
 }
 
 /**
- * Refresh availability states without flash after generation - ENHANCED FOR PAST DATES
+ * Refresh availability states without flash after generation
  * Updates all calendar elements with new states without reloading the calendar
  */
 async function refreshAvailabilityStatesWithoutFlash() {
@@ -1129,20 +1072,11 @@ async function refreshAvailabilityStatesWithoutFlash() {
                 itemData.hasAvailabilityData = true;
                 itemData.bookedParticipants = newAvailability.bookedParticipants || 0;
                 
-                // Check if this is a past date in current displayed month - ENHANCED LOGIC
-                const isPastDateInCurrentMonth = isDateInCurrentDisplayedMonth(itemData.date) && 
-                                                 isDateInPast(itemData.date);
-                
-                if (isPastDateInCurrentMonth) {
-                    // Hide status button for past dates in current month
-                    $item('#statusButton').hide();
-                } else {
-                    // Show status button and update appearance for valid dates
-                    $item('#statusButton').show();
-                    const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
-                    $item('#statusButton').label = statusConfig.text;
-                    $item('#statusButton').style.backgroundColor = statusConfig.color;
-                }
+                // Show status button and update appearance
+                $item('#statusButton').show();
+                const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
+                $item('#statusButton').label = statusConfig.text;
+                $item('#statusButton').style.backgroundColor = statusConfig.color;
                 
                 // Update booking counter
                 $item('#bookingCounterButton').label = itemData.bookedParticipants.toString();
@@ -1658,17 +1592,14 @@ async function changeMonth(direction) {
     updateCalendarDisplay();
     updateNavigationButtons();
     
-    // Update month dropdown if populated - enhanced sync
+    // Update month dropdown if populated - sync with navigation
     if (isMonthDropdownPopulated) {
         const currentMonthValue = `${currentDate.getFullYear()}-${String(currentDate.getMonth()).padStart(2, '0')}`;
         const currentMonth = availableMonths.find(month => month.value === currentMonthValue);
         
         if (currentMonth) {
             $w('#calendarMonth').value = currentMonth.value;
-            // Update display to show only month name
-            setTimeout(() => {
-                updateMonthDisplayText(currentMonth.monthName);
-            }, 100);
+            // No need to manipulate text - dropdown will show the full label
         }
     }
     
@@ -1683,24 +1614,24 @@ async function changeMonth(direction) {
 }
 
 /**
- * Update calendar month and year display - enhanced version
- * Updates the calendar header with current month/year and maintains dropdown sync
+ * Update calendar month and year display - SIMPLIFIED VERSION
+ * Updates the calendar header maintaining consistent Month Year format
  */
 function updateCalendarDisplay() {
     // Update year text
     $w('#yearText').text = currentDate.getFullYear().toString();
     
-    // Update month dropdown if not yet populated (initial state)
+    // Update month dropdown with consistent Month Year format
     if (!isMonthDropdownPopulated) {
-        // For initial display before dropdown is populated, just show month name
         const monthName = MONTH_NAMES[currentDate.getMonth()];
+        const year = currentDate.getFullYear();
         
-        // Set initial options with current month only
+        // Set initial options with current month in Month Year format
         $w('#calendarMonth').options = [{ 
-            label: monthName, 
-            value: `${currentDate.getFullYear()}-${String(currentDate.getMonth()).padStart(2, '0')}` 
+            label: `${monthName} ${year}`,  // Consistent: "July 2025"
+            value: `${year}-${String(currentDate.getMonth()).padStart(2, '0')}` 
         }];
-        $w('#calendarMonth').value = `${currentDate.getFullYear()}-${String(currentDate.getMonth()).padStart(2, '0')}`;
+        $w('#calendarMonth').value = `${year}-${String(currentDate.getMonth()).padStart(2, '0')}`;
     }
 }
 
