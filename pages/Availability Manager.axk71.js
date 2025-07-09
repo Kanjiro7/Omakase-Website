@@ -41,7 +41,6 @@ let availableDateRange = { min: null, max: null };
 let lastSelectedTourId = null;
 let availableMonths = []; // Store available months from data
 let isMonthDropdownPopulated = false; // Track if dropdown has been populated
-let isPageInitialized = false; // Track if initial loading is complete
 
 // Robust dropdown state management - improved pattern to prevent flash effects
 let globalClickListener = null;
@@ -68,29 +67,28 @@ const STATUS_CONFIG = {
     partiallysoldout: { text: 'Slots', color: COLORS.STATUS_PARTIAL }
 };
 
-// Initialize page when ready - sets up all components and handlers with proper loading sequence
+// Initialize page when ready - sets up all components and handlers
 $w.onReady(async function () {
     console.log('Availability Manager initializing...');
     appendLog('Availability Manager initializing...');
     
-    // Show initial loading state immediately - CORRECTED: proper loading sequence
-    showInitialLoadingState();
-    updateSystemStatus('Initializing system...');
-    
     // Complete system reset on page ready to prevent state issues
     performCompleteSystemReset();
     
-    // Initialize calendar display with current date
+    // Set initial loading state
+    showLoadingState();
+    updateSystemStatus('Loading system components...');
+    
+    // Initialize calendar display with current date - show current date even when no tour selected
     updateCalendarDisplayToCurrentDate();
     
-    // Setup calendar month dropdown functionality with enhanced styling
+    // Setup calendar month dropdown functionality
     setupCalendarMonthDropdown();
     
     // Setup repeater handlers before any data operations - critical for proper initialization
     setupRepeaterHandlers();
     
     // Setup tour selector dropdown with database integration
-    updateSystemStatus('Loading tours...');
     await setupTourSelector();
     
     // Setup navigation buttons with range checking for tour-based navigation
@@ -103,36 +101,17 @@ $w.onReady(async function () {
     // Initially hide navigation buttons since no tour is selected (prevents navigation bugs)
     hideNavigationButtons();
     
-    // Mark page as fully initialized
-    isPageInitialized = true;
-    
-    // Now show the proper ready state - CORRECTED: only after full initialization
-    showLoadingState();
     appendLog('Availability Manager initialized successfully');
     updateSystemStatus('Ready - Select a tour');
     console.log('Availability Manager initialized successfully');
 });
 
 /**
- * Show initial loading state during page initialization - NEW FUNCTION
- * Displays loading animation while system components are being set up
- */
-function showInitialLoadingState() {
-    $w('#loadingBox').expand();
-    $w('#selectTourText').collapse();
-    $w('#loading').expand();
-    $w('#repeaterBox').collapse();
-}
-
-/**
- * Setup calendar month dropdown functionality with enhanced styling
- * Handles dynamic population, selection of available months, and dropdown arrow hiding
+ * Setup calendar month dropdown functionality
+ * Handles dynamic population and selection of available months
  */
 function setupCalendarMonthDropdown() {
     console.log('Setting up calendar month dropdown...');
-    
-    // Hide dropdown arrow for cleaner interface
-    hideDropdownArrow();
     
     // Setup click handler to populate dropdown on first click
     $w('#calendarMonth').onClick(() => {
@@ -146,41 +125,7 @@ function setupCalendarMonthDropdown() {
         handleMonthDropdownChange(event);
     });
     
-    console.log('Calendar month dropdown configured with hidden arrow');
-}
-
-/**
- * Hide dropdown arrow for cleaner interface
- * Removes the dropdown arrow to prevent interference with navigation arrows
- */
-function hideDropdownArrow() {
-    try {
-        // Method 1: Try to hide arrow using inline CSS styles
-        $w('#calendarMonth').style.backgroundImage = 'none';
-        $w('#calendarMonth').style.appearance = 'none';
-        $w('#calendarMonth').style.webkitAppearance = 'none';
-        $w('#calendarMonth').style.mozAppearance = 'none';
-        
-        // Method 2: Additional CSS properties to ensure arrow is hidden
-        setTimeout(() => {
-            try {
-                const monthElement = $w('#calendarMonth');
-                if (monthElement && monthElement.style) {
-                    monthElement.style.background = 'transparent';
-                    monthElement.style.border = 'none';
-                    monthElement.style.outline = 'none';
-                }
-            } catch (error) {
-                console.warn('Could not apply additional dropdown styling:', error);
-            }
-        }, 100);
-        
-        console.log('Dropdown arrow hidden successfully');
-        
-    } catch (error) {
-        console.warn('Could not hide dropdown arrow:', error);
-        appendLog('Warning: Could not hide dropdown arrow');
-    }
+    console.log('Calendar month dropdown configured');
 }
 
 /**
@@ -294,7 +239,7 @@ function updateMonthDisplayText(monthName) {
     // Use setTimeout to ensure the DOM has updated
     setTimeout(() => {
         try {
-            // This is a workaround to update the display text while keeping full options
+            // Update the display text while keeping full options
             const monthDropdown = $w('#calendarMonth');
             
             // Create a temporary option with just the month name for display
@@ -651,6 +596,7 @@ async function setupTourSelector() {
     try {
         console.log('Starting tour dropdown population...');
         appendLog('Loading tours from database...');
+        updateSystemStatus('Loading tours...');
         
         // Get all tours from database ordered by urlName for consistent display
         const toursQuery = await wixData.query('Tours')
@@ -663,6 +609,7 @@ async function setupTourSelector() {
         if (toursQuery.items.length === 0) {
             $w('#tourSelector').options = [{ label: 'No tours found', value: '' }];
             appendLog('No tours found in database');
+            updateSystemStatus('No tours available');
             return;
         }
         
@@ -682,11 +629,13 @@ async function setupTourSelector() {
         $w('#tourSelector').onChange(onTourSelected);
         
         appendLog(`Successfully loaded ${toursQuery.items.length} tours in dropdown`);
+        updateSystemStatus(`Tours loaded - Select a tour`);
         console.log('Tour dropdown populated successfully');
         
     } catch (error) {
         console.error('Error setting up tour selector:', error);
         appendLog(`Error loading tours: ${error.message}`);
+        updateSystemStatus('Error loading tours');
         $w('#tourSelector').options = [{ label: 'Error loading tours', value: '' }];
     }
 }
@@ -951,9 +900,6 @@ function createDayData(date, dayNumber, viewYear, viewMonth) {
     const bookedParticipants = availability ? (availability.bookedParticipants || 0) : 0;
     const hasData = availability !== null;
     
-    // Check if this is a past date in current month - NEW FEATURE
-    const isPastDate = isCurrentMonth && date < today;
-    
     // Create valid ID for Wix repeater (required for proper element targeting)
     const validId = `d-${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
     
@@ -963,7 +909,6 @@ function createDayData(date, dayNumber, viewYear, viewMonth) {
         dateKey: dateKey,
         date: date,
         isCurrentMonth: isCurrentMonth,
-        isPastDate: isPastDate,  // NEW: Track if day is in the past
         textColor: textColor,
         backgroundColor: backgroundColor,
         borderColor: borderColor,
@@ -1008,22 +953,15 @@ async function populateCalendar() {
 
 /**
  * Setup status button with improved visibility control and centralized colors
- * ENHANCED: Hide status button for past dates in current month
+ * Configures button appearance and click handler for status management
  */
 function setupStatusButton($item, itemData, index) {
-    console.log(`Setting up status button for day ${itemData.dayNumber}: hasData=${itemData.hasAvailabilityData}, isCurrentMonth=${itemData.isCurrentMonth}, isPastDate=${itemData.isPastDate}`);
+    console.log(`Setting up status button for day ${itemData.dayNumber}: hasData=${itemData.hasAvailabilityData}, isCurrentMonth=${itemData.isCurrentMonth}`);
     
-    // Hide status button for days without availability data
+    // Show status button only for days with availability data
     if (!itemData.hasAvailabilityData) {
         $item('#statusButton').hide();
         console.log(`Hiding status button for day ${itemData.dayNumber} - no availability data`);
-        return;
-    }
-    
-    // NEW: Hide status button for past dates in current month
-    if (itemData.isPastDate) {
-        $item('#statusButton').hide();
-        console.log(`Hiding status button for day ${itemData.dayNumber} - past date`);
         return;
     }
     
@@ -1164,16 +1102,11 @@ async function refreshAvailabilityStatesWithoutFlash() {
                 itemData.hasAvailabilityData = true;
                 itemData.bookedParticipants = newAvailability.bookedParticipants || 0;
                 
-                // Check if this is a past date - hide button for past dates
-                if (itemData.isPastDate) {
-                    $item('#statusButton').hide();
-                } else {
-                    // Show status button and update appearance for future dates
-                    $item('#statusButton').show();
-                    const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
-                    $item('#statusButton').label = statusConfig.text;
-                    $item('#statusButton').style.backgroundColor = statusConfig.color;
-                }
+                // Show status button and update appearance
+                $item('#statusButton').show();
+                const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
+                $item('#statusButton').label = statusConfig.text;
+                $item('#statusButton').style.backgroundColor = statusConfig.color;
                 
                 // Update booking counter
                 $item('#bookingCounterButton').label = itemData.bookedParticipants.toString();
@@ -1689,7 +1622,7 @@ async function changeMonth(direction) {
     updateCalendarDisplay();
     updateNavigationButtons();
     
-    // Update month dropdown if populated
+    // Update month dropdown if populated - enhanced sync
     if (isMonthDropdownPopulated) {
         const currentMonthValue = `${currentDate.getFullYear()}-${String(currentDate.getMonth()).padStart(2, '0')}`;
         const currentMonth = availableMonths.find(month => month.value === currentMonthValue);
@@ -1714,7 +1647,7 @@ async function changeMonth(direction) {
 }
 
 /**
- * Update calendar month and year display
+ * Update calendar month and year display - enhanced version
  * Updates the calendar header with current month/year and maintains dropdown sync
  */
 function updateCalendarDisplay() {
