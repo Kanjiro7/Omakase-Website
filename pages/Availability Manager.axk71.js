@@ -13,11 +13,11 @@ const COLORS = {
     
     // Background colors for calendar days
     BG_CURRENT_MONTH: '#FFFFFF',   // Current month days background
-    BG_OTHER_MONTH: '#EEECEC',     // Non-current month days background
+    BG_OTHER_MONTH: '#D2D7DC',     // Non-current month days background
     
     // Border colors (4px borders, coordinated with backgrounds)
     BORDER_CURRENT_MONTH: '#FFFFFF',  // Normal days border (matches background)
-    BORDER_OTHER_MONTH: '#EEECEC',    // Non-current month days border (matches background)
+    BORDER_OTHER_MONTH: '#D2D7DC',    // Non-current month days border (matches background)
     BORDER_TODAY: '#567FCB',           // Current day border highlight (blue)
     
     // Status colors for availability states
@@ -75,7 +75,7 @@ $w.onReady(async function () {
     
     // Show loading state immediately while components are being set up
     showLoadingState();
-    updateSystemStatus('Initializing components...');
+    updateSystemStatus('Loading system...');
     
     // Complete system reset on page ready to prevent state issues
     performCompleteSystemReset();
@@ -100,19 +100,17 @@ $w.onReady(async function () {
     hideNavigationButtons();
     
     // Load tours data and wait for completion before showing ready state
-    updateSystemStatus('Loading tours from database...');
     await setupTourSelector();
     
-    // Mark initialization as complete and show appropriate ready state
+    // Mark initialization as complete after everything is properly loaded
     isInitializationComplete = true;
-    updateSystemStatus('Ready - Select a tour');
     
     appendLog('Availability Manager initialized successfully');
     console.log('Availability Manager initialized successfully');
 });
 
 /**
- * Setup calendar month dropdown functionality - SIMPLIFIED VERSION
+ * Setup calendar month dropdown functionality
  * Handles dynamic population and selection with consistent Month Year format
  */
 function setupCalendarMonthDropdown() {
@@ -540,7 +538,7 @@ function setupRepeaterHandlers() {
         }
     });
     
-    // Setup day menu button click handler with robust pattern to prevent accumulation
+    // Setup day menu button click handler with robust pattern
     $w('#dayMenuButton').onClick((event) => {
         console.log('Day menu button clicked with context:', event.context);
         
@@ -556,8 +554,9 @@ function setupRepeaterHandlers() {
 }
 
 /**
- * Setup tour selector dropdown using urlName for display - ENHANCED WITH LOADING STATES
+ * Setup tour selector dropdown using urlName for display with improved timing
  * Loads tours from database and populates dropdown options with proper loading feedback
+ * Now waits 2 seconds after population before showing ready state
  */
 async function setupTourSelector() {
     try {
@@ -597,10 +596,15 @@ async function setupTourSelector() {
         appendLog(`Successfully loaded ${toursQuery.items.length} tours in dropdown`);
         console.log('Tour dropdown populated successfully');
         
-        // Only show ready state if initialization is complete
-        if (isInitializationComplete) {
+        // Wait 2 seconds after dropdown population to ensure proper rendering before showing ready state
+        updateSystemStatus('Loading system...');
+        appendLog('Waiting for tour selector to complete rendering...');
+        
+        setTimeout(() => {
             updateSystemStatus('Ready - Select a tour');
-        }
+            appendLog('Tour selector ready - user can now select a tour');
+            console.log('Tour selector fully ready after 2 second delay');
+        }, 2000);
         
     } catch (error) {
         console.error('Error setting up tour selector:', error);
@@ -922,16 +926,36 @@ async function populateCalendar() {
 }
 
 /**
+ * Check if a date is in the past (before today)
+ * Returns true if the date is before today's date
+ */
+function isDateInPast(date) {
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    return checkDate < todayStart;
+}
+
+/**
  * Setup status button with improved visibility control and centralized colors
  * Configures button appearance and click handler for status management
+ * Hides button for past dates in current month
  */
 function setupStatusButton($item, itemData, index) {
     console.log(`Setting up status button for day ${itemData.dayNumber}: hasData=${itemData.hasAvailabilityData}, isCurrentMonth=${itemData.isCurrentMonth}`);
     
-    // Show status button only for days with availability data
+    // Hide status button for days without availability data
     if (!itemData.hasAvailabilityData) {
         $item('#statusButton').hide();
         console.log(`Hiding status button for day ${itemData.dayNumber} - no availability data`);
+        return;
+    }
+    
+    // Hide status button for past dates in current month
+    if (itemData.isCurrentMonth && isDateInPast(itemData.date)) {
+        $item('#statusButton').hide();
+        console.log(`Hiding status button for day ${itemData.dayNumber} - past date in current month`);
         return;
     }
     
@@ -945,7 +969,7 @@ function setupStatusButton($item, itemData, index) {
     $item('#statusButton').style.backgroundColor = statusConfig.color;
     $item('#statusButton').style.color = '#FFFFFF';
     
-    // Setup click handler for status toggle (prevents flash during updates)
+    // Setup click handler for status toggle
     $item('#statusButton').onClick(async () => {
         await toggleDayStatusWithoutFlash(itemData, $item);
     });
@@ -1072,11 +1096,16 @@ async function refreshAvailabilityStatesWithoutFlash() {
                 itemData.hasAvailabilityData = true;
                 itemData.bookedParticipants = newAvailability.bookedParticipants || 0;
                 
-                // Show status button and update appearance
-                $item('#statusButton').show();
-                const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
-                $item('#statusButton').label = statusConfig.text;
-                $item('#statusButton').style.backgroundColor = statusConfig.color;
+                // Show/hide status button based on date and availability
+                const isPastDate = itemData.isCurrentMonth && isDateInPast(itemData.date);
+                if (isPastDate) {
+                    $item('#statusButton').hide();
+                } else {
+                    $item('#statusButton').show();
+                    const statusConfig = STATUS_CONFIG[newAvailability.status] || STATUS_CONFIG.available;
+                    $item('#statusButton').label = statusConfig.text;
+                    $item('#statusButton').style.backgroundColor = statusConfig.color;
+                }
                 
                 // Update booking counter
                 $item('#bookingCounterButton').label = itemData.bookedParticipants.toString();
@@ -1544,46 +1573,76 @@ function updateNavigationButtons() {
         return;
     }
     
+    // Check if current month is within available range
     const currentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const minMonth = new Date(availableDateRange.min.getFullYear(), availableDateRange.min.getMonth(), 1);
+    const maxMonth = new Date(availableDateRange.max.getFullYear(), availableDateRange.max.getMonth(), 1);
     
-    // Hide prev button if at or before minimum month
-    if (currentMonth.getTime() <= availableDateRange.min.getTime()) {
+    // Show/hide previous button based on range
+    if (currentMonth.getTime() <= minMonth.getTime()) {
         $w('#prevMonthButton').hide();
     } else {
         $w('#prevMonthButton').show();
     }
     
-    // Hide next button if at or after maximum month
-    if (currentMonth.getTime() >= availableDateRange.max.getTime()) {
+    // Show/hide next button based on range
+    if (currentMonth.getTime() >= maxMonth.getTime()) {
         $w('#nextMonthButton').hide();
     } else {
         $w('#nextMonthButton').show();
     }
     
-    console.log('Navigation buttons updated for tour:', currentTourLabel);
+    console.log('Navigation buttons updated for current month:', MONTH_NAMES[currentDate.getMonth()], currentDate.getFullYear());
 }
 
 /**
- * Change current month with range checking and tour validation
- * Enhanced with dropdown synchronization for seamless navigation
+ * Update calendar display when navigating months
+ * Refreshes the month/year display elements
  */
-async function changeMonth(direction) {
-    // Prevent navigation if no tour selected (prevents bugs)
-    if (!currentTourId) {
-        appendLog('Cannot navigate - no tour selected');
-        return;
+function updateCalendarDisplay() {
+    const currentMonthName = MONTH_NAMES[currentDate.getMonth()];
+    const currentYear = currentDate.getFullYear();
+    
+    // Update year display
+    $w('#yearText').text = currentYear.toString();
+    
+    // Update month dropdown to show current month
+    if (isMonthDropdownPopulated) {
+        const currentMonthValue = `${currentYear}-${String(currentDate.getMonth()).padStart(2, '0')}`;
+        const currentMonth = availableMonths.find(month => month.value === currentMonthValue);
+        
+        if (currentMonth) {
+            $w('#calendarMonth').value = currentMonth.value;
+        }
+    } else {
+        // Reset to simple display when dropdown not populated
+        $w('#calendarMonth').options = [{ 
+            label: `${currentMonthName} ${currentYear}`,
+            value: `${currentYear}-${String(currentDate.getMonth()).padStart(2, '0')}` 
+        }];
+        $w('#calendarMonth').value = `${currentYear}-${String(currentDate.getMonth()).padStart(2, '0')}`;
     }
     
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + direction);
+    console.log(`Calendar display updated to: ${currentMonthName} ${currentYear}`);
+}
+
+/**
+ * Change month navigation with proper validation
+ * Handles month navigation with boundary checks
+ */
+function changeMonth(direction) {
+    if (!currentTourId) return;
+    
+    const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + direction, 1);
     
     // Check if new month is within available range
     if (availableDateRange.min && availableDateRange.max) {
         const newMonth = new Date(newDate.getFullYear(), newDate.getMonth(), 1);
+        const minMonth = new Date(availableDateRange.min.getFullYear(), availableDateRange.min.getMonth(), 1);
+        const maxMonth = new Date(availableDateRange.max.getFullYear(), availableDateRange.max.getMonth(), 1);
         
-        if (newMonth.getTime() < availableDateRange.min.getTime() || 
-            newMonth.getTime() > availableDateRange.max.getTime()) {
-            appendLog('Cannot navigate outside available date range');
+        if (newMonth.getTime() < minMonth.getTime() || newMonth.getTime() > maxMonth.getTime()) {
+            console.log('Month navigation blocked - outside available range');
             return;
         }
     }
@@ -1592,153 +1651,87 @@ async function changeMonth(direction) {
     updateCalendarDisplay();
     updateNavigationButtons();
     
-    // Update month dropdown if populated - sync with navigation
-    if (isMonthDropdownPopulated) {
-        const currentMonthValue = `${currentDate.getFullYear()}-${String(currentDate.getMonth()).padStart(2, '0')}`;
-        const currentMonth = availableMonths.find(month => month.value === currentMonthValue);
-        
-        if (currentMonth) {
-            $w('#calendarMonth').value = currentMonth.value;
-            // No need to manipulate text - dropdown will show the full label
-        }
-    }
-    
-    appendLog(`Changed to ${MONTH_NAMES[currentDate.getMonth()]} ${currentDate.getFullYear()}`);
-    
-    // Reload calendar if tour is selected and data is available
-    if (currentTourId && availabilityRecord) {
+    // Reload calendar for new month
+    if (availabilityRecord) {
         updateSystemStatus('Loading month data...');
-        await populateCalendar();
-        updateSystemStatus('Ready');
+        populateCalendar().then(() => {
+            updateSystemStatus('Ready');
+        });
     }
-}
-
-/**
- * Update calendar month and year display - SIMPLIFIED VERSION
- * Updates the calendar header maintaining consistent Month Year format
- */
-function updateCalendarDisplay() {
-    // Update year text
-    $w('#yearText').text = currentDate.getFullYear().toString();
     
-    // Update month dropdown with consistent Month Year format
-    if (!isMonthDropdownPopulated) {
-        const monthName = MONTH_NAMES[currentDate.getMonth()];
-        const year = currentDate.getFullYear();
-        
-        // Set initial options with current month in Month Year format
-        $w('#calendarMonth').options = [{ 
-            label: `${monthName} ${year}`,  // Consistent: "July 2025"
-            value: `${year}-${String(currentDate.getMonth()).padStart(2, '0')}` 
-        }];
-        $w('#calendarMonth').value = `${year}-${String(currentDate.getMonth()).padStart(2, '0')}`;
-    }
+    const monthName = MONTH_NAMES[currentDate.getMonth()];
+    const year = currentDate.getFullYear();
+    appendLog(`Navigated to ${monthName} ${year}`);
 }
 
 /**
- * Show loading state with proper element management
- * Displays initial loading state before tour selection
+ * Show loading state for UI feedback
+ * Displays loading animation and hides calendar
  */
 function showLoadingState() {
-    $w('#loadingBox').expand();
-    $w('#selectTourText').expand();
-    $w('#loading').collapse();
     $w('#repeaterBox').collapse();
+    $w('#loadingBox').expand();
+    console.log('Loading state shown');
 }
 
 /**
  * Show loading animation during data operations
- * Displays loading animation during data fetching and processing
+ * Provides visual feedback during async operations
  */
 function showLoadingAnimation() {
-    $w('#loadingBox').expand();
-    $w('#selectTourText').collapse();
-    $w('#loading').expand();
     $w('#repeaterBox').collapse();
+    $w('#loadingBox').expand();
+    console.log('Loading animation shown');
 }
 
 /**
- * Show calendar state when data is loaded
- * Displays calendar when data is successfully loaded and processed
+ * Show calendar state after data loading
+ * Displays calendar and hides loading elements
  */
 function showCalendarState() {
     $w('#loadingBox').collapse();
-    $w('#selectTourText').expand();
-    $w('#loading').collapse();
     $w('#repeaterBox').expand();
+    console.log('Calendar state shown');
 }
 
 /**
- * Update system status message for user feedback
- * Provides real-time status updates to users
+ * Update system status message
+ * Updates the status message display for user feedback
  */
 function updateSystemStatus(message) {
-    try {
-        if ($w('#statusMessage')) {
-            $w('#statusMessage').text = message;
-            console.log('Status updated:', message);
-        }
-    } catch (error) {
-        console.error('Error updating status:', error);
-    }
+    $w('#statusMessage').text = message;
+    console.log('Status updated:', message);
 }
 
 /**
- * Append log message with timestamp
- * Maintains activity log with timestamped entries
+ * Append log message to system log
+ * Adds timestamped log entries for debugging and monitoring
  */
 function appendLog(message) {
-    try {
-        const timestamp = new Date().toLocaleString('en-GB', {
-            day: '2-digit',
-            month: '2-digit', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        });
-        
-        const logMessage = `${timestamp} - ${message}`;
-        
-        if ($w('#logOutput')) {
-            const currentLog = $w('#logOutput').text || '';
-            const newLog = logMessage + '\n' + currentLog;
-            
-            // Keep only last 100 log entries to prevent memory issues
-            const lines = newLog.split('\n');
-            $w('#logOutput').text = lines.slice(0, 100).join('\n');
-        }
-    } catch (error) {
-        console.error('Error appending log:', error);
+    const timestamp = new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    const logEntry = `[${timestamp}] ${message}`;
+    
+    // Get current log content
+    const currentLog = $w('#logOutput').text || '';
+    const logLines = currentLog.split('\n').filter(line => line.trim() !== '');
+    
+    // Add new entry
+    logLines.push(logEntry);
+    
+    // Keep only last 50 entries to prevent overflow
+    if (logLines.length > 50) {
+        logLines.splice(0, logLines.length - 50);
     }
+    
+    // Update log display
+    $w('#logOutput').text = logLines.join('\n');
+    
+    console.log('Log appended:', message);
 }
 
 /**
- * Get season info for a date - placeholder for future implementation
- * Determines if date falls within high season periods
- */
-function getSeasonInfo(date) {
-    // TODO: Implement high season period checking against HighSeasonPeriods collection
-    return 'normal';
-}
-
-/**
- * JST date utility functions for timezone handling
- * Provides Japan Standard Time conversion utilities
- */
-function getJSTDate(date) {
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    return new Date(utc + JST_OFFSET);
-}
-
-function formatDateKey(date) {
-    const jstDate = getJSTDate(date);
-    return jstDate.toISOString().split('T')[0];
-}
-
-/**
- * Simple date key formatting without JST conversion for consistent matching
- * Provides consistent date key format for database operations
+ * Format date to simple key format for consistency
+ * Converts date to YYYY-MM-DD format for database keys
  */
 function formatDateKeySimple(date) {
     const year = date.getFullYear();
@@ -1747,15 +1740,69 @@ function formatDateKeySimple(date) {
     return `${year}-${month}-${day}`;
 }
 
-function parseDateKey(dateKey) {
-    return new Date(dateKey + 'T00:00:00.000Z');
+/**
+ * Get JST date for database operations
+ * Converts date to Japan Standard Time for consistent database operations
+ */
+function getJSTDate(date) {
+    return new Date(date.getTime() + JST_OFFSET);
 }
 
-// Export functions for testing and external access
-export { 
-    setupTourSelector,
-    loadAvailabilityData,
-    populateCalendar,
-    toggleDayStatus,
-    changeMonth
-};
+/**
+ * Export functions for external access
+ * Allows other components to access these functions
+ */
+export function getTourData() {
+    return {
+        currentTourId: currentTourId,
+        currentTourLabel: currentTourLabel,
+        availabilityData: availabilityData,
+        availabilityRecord: availabilityRecord
+    };
+}
+
+export function getCurrentDate() {
+    return currentDate;
+}
+
+export function refreshCalendar() {
+    if (currentTourId && availabilityRecord) {
+        populateCalendar();
+    }
+}
+
+// Export navigation functions for external use
+export function navigateToPreviousMonth() {
+    changeMonth(-1);
+}
+
+export function navigateToNextMonth() {
+    changeMonth(1);
+}
+
+/**
+ * Initialize availability manager for external calls
+ * Allows external components to trigger initialization
+ */
+export function initializeAvailabilityManager() {
+    if (!isInitializationComplete) {
+        console.log('Availability Manager not yet initialized');
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Get current system status for external monitoring
+ * Provides system status information to external components
+ */
+export function getSystemStatus() {
+    return {
+        isInitialized: isInitializationComplete,
+        currentTourId: currentTourId,
+        hasAvailabilityData: Object.keys(availabilityData).length > 0,
+        currentMonth: currentDate.getMonth(),
+        currentYear: currentDate.getFullYear(),
+        availableDateRange: availableDateRange
+    };
+}
