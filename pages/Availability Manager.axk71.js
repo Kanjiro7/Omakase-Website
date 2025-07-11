@@ -2,7 +2,7 @@
 import wixData from 'wix-data';
 import wixWindow from 'wix-window';
 import wixLocation from 'wix-location-frontend';
-import { generateAvailabilityForTour } from 'backend/availability/availabilityCore.web.js';
+import { generateAvailabilityForTour, createInitialAvailability } from 'backend/availability/availabilityCore.web.js';
 
 // Color variables centralized for easy management and consistency
 const COLORS = {
@@ -13,11 +13,11 @@ const COLORS = {
     
     // Background colors for calendar days
     BG_CURRENT_MONTH: '#FFFFFF',   // Current month days background
-    BG_OTHER_MONTH: '#D2D7DC',     // Non-current month days background
+    BG_OTHER_MONTH: '#B7BFC5',     // Non-current month days background
     
     // Border colors (4px borders, coordinated with backgrounds)
     BORDER_CURRENT_MONTH: '#FFFFFF',  // Normal days border (matches background)
-    BORDER_OTHER_MONTH: '#D2D7DC',    // Non-current month days border (matches background)
+    BORDER_OTHER_MONTH: '#B7BFC5',    // Non-current month days border (matches background)
     BORDER_TODAY: '#567FCB',           // Current day border highlight (blue)
     
     // Status colors for availability states
@@ -617,6 +617,7 @@ async function setupTourSelector() {
 /**
  * Handle tour selection with automatic current month reset and navigation button management
  * Processes tour selection and loads corresponding availability data
+ * Enhanced with improved validation for corrupted availability data
  */
 async function onTourSelected(event) {
     const selectedValue = event.target.value;
@@ -680,13 +681,16 @@ async function onTourSelected(event) {
         
         // Check if availability record has proper data structure
         const availabilityRecordItem = availabilityQuery.items[0];
+        
+        // Enhanced validation for corrupted or empty availability data
         if (!availabilityRecordItem.availabilityData || 
             !Array.isArray(availabilityRecordItem.availabilityData) || 
-            availabilityRecordItem.availabilityData.length === 0) {
+            availabilityRecordItem.availabilityData.length === 0 ||
+            (availabilityRecordItem.availabilityData.length === 1 && availabilityRecordItem.availabilityData[0] === "")) {
             
-            appendLog('Availability record exists but contains no date data');
+            appendLog('Availability record exists but contains no valid date data or corrupted data');
             showLoadingState();
-            updateSystemStatus('Corrupted availability data found');
+            updateSystemStatus('Corrupted or empty availability data found');
             
             // Show error lightbox for corrupted availability
             showAvailabilityErrorLightbox();
@@ -750,6 +754,11 @@ async function loadAvailabilityData() {
         // Process availabilityData array from database record
         if (availabilityRecord.availabilityData && Array.isArray(availabilityRecord.availabilityData)) {
             availabilityRecord.availabilityData.forEach(item => {
+                // Skip empty string entries that might be corrupted data
+                if (typeof item === 'string' && item === '') {
+                    return;
+                }
+                
                 // Use simple date format without JST conversion for key matching consistency
                 const itemDate = new Date(item.date);
                 const dateKey = formatDateKeySimple(itemDate);
@@ -1272,6 +1281,7 @@ function closeCalendarDropdownRobust() {
 /**
  * Handle calendar menu actions with tour selection validation
  * Processes calendar-level menu actions with proper validation
+ * Enhanced with improved completion flow including success message and no-flash refresh
  */
 async function handleCalendarMenuAction(action) {
     closeCalendarDropdownRobust();
@@ -1299,11 +1309,8 @@ async function handleCalendarMenuAction(action) {
                     updateSystemStatus('Generating availabilities...');
                     appendLog('Starting availability generation process');
                     
-                    // Call backend function using corrected function name from Testing Page logic
-                    await handleGenerateAvailabilitiesFixed();
-                    
-                    updateSystemStatus('Ready');
-                    appendLog('Availability generation completed');
+                    // Call backend function with enhanced generation logic
+                    await handleGenerateAvailabilitiesComplete();
                 }
             } catch (error) {
                 console.error('Error in generate availabilities:', error);
@@ -1318,10 +1325,11 @@ async function handleCalendarMenuAction(action) {
 }
 
 /**
- * Handle generate availabilities action with proper logic from Testing Page
- * Enhanced with no-flash state refresh after generation
+ * Handle complete availability generation process with enhanced backend integration
+ * UPDATED: Now uses proper backend functions with validation from availabilityCore
+ * Includes proper success messaging and no-flash calendar refresh
  */
-async function handleGenerateAvailabilitiesFixed() {
+async function handleGenerateAvailabilitiesComplete() {
     if (!currentTourId) {
         updateSystemStatus('No tour selected');
         return;
@@ -1331,19 +1339,44 @@ async function handleGenerateAvailabilitiesFixed() {
         updateSystemStatus('Generating availabilities...');
         appendLog('Calling backend availability generation function');
         
-        // Call backend function using the corrected function name and logic from Testing Page
-        const result = await generateAvailabilityForTour(currentTourId, false);
+        // Get selected tour data for generation
+        const selectedTour = toursData.find(tour => tour._id === currentTourId);
+        if (!selectedTour) {
+            throw new Error('Selected tour data not found');
+        }
         
-        if (result && result.status === "SUCCESS") {
-            // Instead of reloading entire tour data, refresh states without flash
+        // UPDATED: Check if availability already exists to decide between creation and regeneration
+        const existingAvailability = await wixData.query('Availability')
+            .eq('tourName', currentTourId)
+            .find();
+        
+        let result;
+        
+        if (existingAvailability.items.length > 0) {
+            // Availability exists, use regeneration function
+            appendLog('Existing availability found, regenerating...');
+            result = await generateAvailabilityForTour(currentTourId, true); // true = manual regeneration
+        } else {
+            // No availability exists, create initial availability
+            appendLog('No existing availability, creating initial...');
+            result = await createInitialAvailability(selectedTour);
+        }
+        
+        if (result && (result.status === 'SUCCESS' || result._id)) {
+            // Refresh calendar states without flash before showing success message
             updateSystemStatus('Refreshing calendar...');
             appendLog('Availability generation successful, refreshing states...');
             
-            // Use the new no-flash refresh method
+            // Use the no-flash refresh method
             await refreshAvailabilityStatesWithoutFlash();
             
+            // Show success message after calendar refresh
+            await wixWindow.openLightbox('messageLightbox', {
+                message: 'Availability generation completed successfully! All dates have been generated and the calendar has been updated.'
+            });
+            
             appendLog('Availability generation completed successfully');
-            updateSystemStatus('Availabilities generated successfully');
+            updateSystemStatus('Ready');
         } else {
             throw new Error(result ? result.error : 'Unknown error in generation');
         }
@@ -1352,6 +1385,11 @@ async function handleGenerateAvailabilitiesFixed() {
         console.error('Error generating availabilities:', error);
         appendLog(`Error generating availabilities: ${error.message}`);
         updateSystemStatus('Error generating availabilities');
+        
+        // Show error message to user
+        await wixWindow.openLightbox('messageLightbox', {
+            message: `Error generating availabilities: ${error.message}`
+        });
     }
 }
 
@@ -1401,6 +1439,9 @@ async function updateAvailabilityStatus(dateKey, newStatus) {
         // Process availability data array without corrupting existing structure
         const availabilityDataArray = [...(availabilityRecord.availabilityData || [])];
         const dateIndex = availabilityDataArray.findIndex(item => {
+            // Skip string entries that might be corrupted
+            if (typeof item === 'string') return false;
+            
             const itemDate = new Date(item.date);
             const itemDateKey = formatDateKeySimple(itemDate);
             return itemDateKey === dateKey;
@@ -1414,13 +1455,11 @@ async function updateAvailabilityStatus(dateKey, newStatus) {
             };
         } else {
             // Create new record without updatedAt in array item
-            const date = new Date(dateKey);
             availabilityDataArray.push({
-                date: date.toISOString(),
+                date: dateKey,
                 status: newStatus,
                 bookedParticipants: 0,
-                season: 'normal',
-                createdAt: getJSTDate(new Date()).toISOString()
+                season: 'normal'
             });
         }
         
